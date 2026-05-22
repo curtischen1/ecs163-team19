@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMS Response Time Layout</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Alata&family=Inknut+Antiqua&family=Licorice&family=Lora:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="styles.css">
+    <script src="script.js" defer></script>
+</head>
+
+<body>
+    <main id="page">
+        <h1>How long will it take an ambulance to reach you?</h1>
+
+        <section id="dashboard">
+            <aside id="left-panel">
+
+                <section id="bar-chart-section">
+                    <div id="bar-chart">
+                        <div class="chart-axis y-axis">EMS Response Time</div>
+
+                        <div id="bars">
+                            <div class="bar" style="height: 150px;"></div>
+                            <div class="bar" style="height: 128px;"></div>
+                            <div class="bar" style="height: 112px;"></div>
+                            <div class="bar selected-bar" style="height: 88px;"></div>
+                            <div class="bar" style="height: 80px;"></div>
+                            <div class="bar" style="height: 70px;"></div>
+                            <div class="bar" style="height: 64px;"></div>
+                            <div class="bar" style="height: 64px;"></div>
+                            <div class="bar" style="height: 64px;"></div>
+                        </div>
+
+                        <div class="chart-axis x-axis" id="bar-chart-label">
+                            Income by Zipcode
+                        </div>
+                    </div>
+                </section>
+
+                <section id="toggle-section">
+                    <h2>Toggle</h2>
+
+                    <div class="toggle-row">
+                        <button class="boundary-toggle selected" id="zipcode-toggle" type="button"></button>
+                        <span>Zipcode</span>
+                    </div>
+
+                    <div class="toggle-row">
+                        <button class="boundary-toggle" id="tract-toggle" type="button"></button>
+                        <span>Census Tract Areas</span>
+                    </div>
+
+                    <div class="firestation-row">
+                        <span>Firestations</span>
+
+                        <button id="firestation-toggle" type="button" aria-label="Toggle firestations">
+                            <span id="firestation-knob"></span>
+                        </button>
+                    </div>
+                </section>
+
+                <section id="incident-report">
+                    <h2>Incident Report</h2>
+
+                    <p id="incident-text">
+                        March 12 9:34am call was made about call type group: ____.
+                        EMS arrived <span>15 min</span> later at 9:49am.
+                    </p>
+                </section>
+
+            </aside>
+
+            <section id="map-area">
+                <div id="legend">
+                    <span>Low Response Time</span>
+
+                    <div id="legend-gradient"></div>
+
+                    <span>High Response Time</span>
+                </div>
+
+                <div id="map-frame">
+
+                    <iframe id="heatmap-frame" src="zip.html" title="EMS Response Time Heatmap"></iframe>
+
+
+                    <div id="map-controls">
+                        <button type="button">+</button>
+                        <button type="button">−</button>
+                    </div>
+                </div>
+
+                <div id="timeline">
+                    <button class="month" data-month="jan">Jan</button>
+                    <button class="month" data-month="feb">Feb</button>
+                    <button class="month selected-month" data-month="mar">Mar</button>
+                    <button class="month" data-month="apr">Apr</button>
+                    <button class="month" data-month="may">May</button>
+                    <button class="month" data-month="jun">Jun</button>
+                    <button class="month" data-month="jul">Jul</button>
+                    <button class="month" data-month="aug">Aug</button>
+                    <button class="month" data-month="sep">Sep</button>
+                    <button class="month" data-month="oct">Oct</button>
+                    <button class="month" data-month="nov">Nov</button>
+                    <button class="month" data-month="dec">Dec</button>
+                    
+                </div>
+            </section>
+        </section>
+    </main>
+</body>
+</html>
