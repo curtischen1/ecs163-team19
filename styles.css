@@ -42,6 +42,8 @@ h1 {
     display: flex;
     flex-direction: column;
     align-items: center;
+    max-height: calc(100vh - 200px);
+    overflow-y: auto;
 }
 
 /* Bar Chart */
@@ -186,7 +188,6 @@ h1 {
 
 #incident-report {
     width: 285px;
-    min-height: 150px;
     background: #e9f0ff;
     border: 3px solid #6f88b9;
     border-radius: 32px;
@@ -202,8 +203,16 @@ h1 {
 }
 
 #incident-report p {
-    font-size: 15px;
+    font-size: 14px;
     line-height: 1.35;
+}
+
+#incident-details p {
+    margin-bottom: 6px;
+}
+
+#incident-details p:last-child {
+    margin-bottom: 0;
 }
 
 #incident-report span {

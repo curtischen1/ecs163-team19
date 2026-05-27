@@ -67,10 +67,16 @@
                 <section id="incident-report">
                     <h2>Incident Report</h2>
 
-                    <p id="incident-text">
-                        March 12 9:34am call was made about call type group: ____.
-                        EMS arrived <span>15 min</span> later at 9:49am.
-                    </p>
+                    <p id="incident-text">Click any dot on the map to see incident details.</p>
+
+                    <div id="incident-details" style="display:none;">
+                        <p><strong>Date &amp; Time:</strong> <span id="incident-date">—</span></p>
+                        <p><strong>Response Time:</strong> <span id="incident-response-time">—</span></p>
+                        <p><strong>Call Type:</strong> <span id="incident-call-type-group">—</span></p>
+                        <p><strong>Station Area:</strong> <span id="incident-station">—</span></p>
+                        <p><strong>Address:</strong> <span id="incident-address">—</span></p>
+                        <p><strong>Zipcode:</strong> <span id="incident-zipcode">—</span></p>
+                    </div>
                 </section>
 
             </aside>
