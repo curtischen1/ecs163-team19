@@ -21,7 +21,9 @@
         barChartLabel.textContent = "Income by Zipcode";
 
 
-        mapFrame.src = "zip.html";
+        //mapFrame.src = "zip.html";
+        //mapFrame.src = "map.html";
+        updateMapSrc();
 
         updateMapSettings();
     });
@@ -35,21 +37,50 @@
         barChartLabel.textContent = "Income by Census Tract Area";
 
 
-        mapFrame.src = "heatmap.html";
+        //mapFrame.src = "heatmap.html";
+        //mapFrame.src = "map.html?boundary=tract";
+        updateMapSrc();
 
         updateMapSettings();
     });
 
     firestationToggle.addEventListener("click", function () {
         firestationsVisible = !firestationsVisible;
-
         firestationToggle.classList.toggle("on");
-
-        /*
-            Where could tell map to show or hide firestations
-        */
-
+        sendFirestationState();
         updateMapSettings();
+    });
+
+    /*mapFrame.addEventListener("load", function () {
+        sendFirestationState();
+    });*/
+    window.addEventListener("message", function (event) {
+        if (event.data.type === "MAP_READY") {
+            sendFirestationState();
+        }
+    });
+
+    function sendFirestationState() {
+        mapFrame.contentWindow.postMessage(
+            { type: "SET_FIRESTATIONS", visible: firestationsVisible },
+            "*"
+        );
+    }
+
+    function updateMapSrc() {
+        const params = new URLSearchParams();
+        if (currentBoundary === "tract") params.set("boundary", "tract");
+        params.set("month", currentMonth);
+        mapFrame.src = "map.html?" + params.toString();
+    }
+
+    const zoomInButton = document.querySelector("#zoom-in");
+    const zoomOutButton = document.querySelector("#zoom-out");
+    zoomInButton.addEventListener("click", function () {
+        mapFrame.contentWindow.postMessage({ type: "ZOOM_IN" }, "*");
+    });
+    zoomOutButton.addEventListener("click", function () {
+        mapFrame.contentWindow.postMessage({ type: "ZOOM_OUT" }, "*");
     });
 
     months.forEach(function (monthButton) {
@@ -66,6 +97,7 @@
             */
 
             console.log("Selected month:", currentMonth);
+            updateMapSrc();
             updateMapSettings();
         });
     });
