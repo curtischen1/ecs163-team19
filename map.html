@@ -144,9 +144,17 @@ const zoom = d3.zoom()
         .attr("r", 3 / k)
         .attr("stroke-width", 0.5 / k);
     }
+    if (stationsLayer) {
+      const k = event.transform.k;
+      stationsLayer.selectAll("circle")
+        .attr("r", 6 / k)
+        .attr("stroke-width", 1.5 / k);
+    }
   });
 
 svg.call(zoom);
+svg.on("mouseenter", function() { window.focus();});
+document.addEventListener("wheel", function(e) {e.preventDefault();}, { passive: false });
 
 let stationsLayer = null;
 let dotsLayer = null;
@@ -303,7 +311,7 @@ async function init() {
     */
 
     container.append("g") // changed from svg to container to fix zooming
-      .attr("clip-path", "url(#clip)")
+      //.attr("clip-path", "url(#clip)")
       .selectAll("path")
       .data(contours)
       .enter()
@@ -399,12 +407,27 @@ async function init() {
       .append("circle")
       .attr("cx", d => projection([d.lng, d.lat])[0])
       .attr("cy", d => projection([d.lng, d.lat])[1])
-      .attr("r", 7)
+      .attr("r", 6)
       .attr("fill", "#ff6b00")
       .attr("stroke", "#ffffff")
       .attr("stroke-width", 1.5)
-      .append("title")
-      .text(d => `Station ${parseInt(d.station_number)}`);
+      //.append("title")
+      //.text(d => `Station ${parseInt(d.station_number)}`);
+      .on("mouseover", function (event, d) {
+        tooltip
+          .style("display", "block")
+          .style("left", (event.clientX + 14) + "px")
+          .style("top", (event.clientY - 10) + "px")
+          .html(`<strong>Station ${parseInt(d.station_number)}</strong>`);
+      })
+      .on("mousemove", function (event) {
+        tooltip
+          .style("left", (event.clientX + 14) + "px")
+          .style("top", (event.clientY - 10) + "px");
+      })
+      .on("mouseout", function () {
+        tooltip.style("display", "none");
+      })
 
     window.parent.postMessage({ type: "MAP_READY" }, "*");
 
