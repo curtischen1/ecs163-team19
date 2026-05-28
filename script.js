@@ -60,6 +60,17 @@
         if (event.data.type === "MAP_READY") {
             sendFirestationState();
         }
+        if (event.data.type === "INCIDENT_CLICK") {
+            const { date, responseTime, callTypeGroup, stationArea, address, zipcode } = event.data.data;
+            document.getElementById("incident-text").style.display = "none";
+            document.getElementById("incident-details").style.display = "";
+            document.getElementById("incident-date").textContent = date;
+            document.getElementById("incident-response-time").textContent = responseTime;
+            document.getElementById("incident-call-type-group").textContent = callTypeGroup;
+            document.getElementById("incident-station").textContent = stationArea;
+            document.getElementById("incident-address").textContent = address;
+            document.getElementById("incident-zipcode").textContent = zipcode;
+        }
     });
 
     function sendFirestationState() {

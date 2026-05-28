@@ -30,6 +30,22 @@ svg {
 
 <svg id="map-svg"></svg>
 
+<div id="tooltip" style="
+  position: fixed;
+  display: none;
+  background: rgba(35, 57, 98, 0.93);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: Arial, sans-serif;
+  pointer-events: none;
+  z-index: 100;
+  max-width: 210px;
+  line-height: 1.5;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+"></div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 
 <script>
@@ -71,6 +87,17 @@ const DateTo = m === 12 ? "2025-01-01" : `2024-${String(m + 1).padStart(2, "0")}
 const EMS_URL =
   `https://data.sfgov.org/resource/nuek-vuh3.json?$where=received_dttm >= '${DateFrom}T00:00:00' AND received_dttm < '${DateTo}T00:00:00'&$limit=50000&$$app_token=${encodeURIComponent(APP_TOKEN)}`;
 
+const SAMPLE_SIZE = 750;
+
+function sampleIncidents(arr, n) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a.slice(0, Math.min(n, a.length));
+}
+
 function buildGrid(points, cell = 8) {
   const cols = Math.ceil(W / cell);
   const rows = Math.ceil(H / cell);
@@ -111,12 +138,18 @@ const zoom = d3.zoom()
   .scaleExtent([0.5,8])
   .on("zoom", (event) => {
     container.attr("transform", event.transform);
-    //svg.select("#clip").attr("transform", event.transform);
+    if (dotsLayer) {
+      const k = event.transform.k;
+      dotsLayer.selectAll("circle")
+        .attr("r", 3 / k)
+        .attr("stroke-width", 0.5 / k);
+    }
   });
 
 svg.call(zoom);
 
 let stationsLayer = null;
+let dotsLayer = null;
 
 /*window.addEventListener("message", (event) => {
   if (event.data.type === "SET_FIRESTATIONS" && stationsLayer) {
@@ -184,9 +217,12 @@ async function init() {
         return {
           lng,
           lat,
-          t:
-            (new Date(d.on_scene_dttm) -
-             new Date(d.received_dttm)) / 1000
+          t: (new Date(d.on_scene_dttm) - new Date(d.received_dttm)) / 1000,
+          receivedDttm: d.received_dttm,
+          callTypeGroup: d.call_type_group || "Unknown",
+          stationArea: d.station_area || "—",
+          address: d.address || "—",
+          zipcode: d.zipcode_of_incident || "—"
         };
       })
       .filter(d => d.t > 0 && d.t < 3600);
@@ -222,6 +258,8 @@ async function init() {
         y: d.y,
         t: d.tSum / d.count
       }));
+
+    const sampledRows = sampleIncidents(rows, SAMPLE_SIZE);
 
     if (points.length === 0) {
       throw new Error("No EMS points were found for this date range.");
@@ -291,6 +329,67 @@ async function init() {
       .attr("fill", "none")
       .attr("stroke", "#14071f")
       .attr("stroke-width", 0.8);
+
+    dotsLayer = container.append("g").attr("id", "dots-layer");
+
+    const tooltip = d3.select("#tooltip");
+
+    dotsLayer.selectAll("circle")
+      .data(sampledRows)
+      .enter()
+      .append("circle")
+      .attr("cx", d => projection([d.lng, d.lat])[0])
+      .attr("cy", d => projection([d.lng, d.lat])[1])
+      .attr("r", 3)
+      .attr("fill", "#ffffff")
+      .attr("fill-opacity", 0.75)
+      .attr("stroke", "#233962")
+      .attr("stroke-width", 0.5)
+      .style("cursor", "pointer")
+      .on("mouseover", function (event, d) {
+        const date = new Date(d.receivedDttm);
+        const dateStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+        const timeStr = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+        const mins = Math.floor(d.t / 60);
+        const secs = Math.round(d.t % 60);
+        tooltip
+          .style("display", "block")
+          .style("left", (event.clientX + 14) + "px")
+          .style("top", (event.clientY - 10) + "px")
+          .html(
+            `<strong>${dateStr} ${timeStr}</strong><br>` +
+            `Response: ${mins}m ${secs}s<br>` +
+            `Type: ${d.callTypeGroup}<br>` +
+            `Station: ${d.stationArea}<br>` +
+            `${d.address}, ${d.zipcode}`
+          );
+      })
+      .on("mousemove", function (event) {
+        tooltip
+          .style("left", (event.clientX + 14) + "px")
+          .style("top", (event.clientY - 10) + "px");
+      })
+      .on("mouseout", function () {
+        tooltip.style("display", "none");
+      })
+      .on("click", function (event, d) {
+        const date = new Date(d.receivedDttm);
+        const dateStr = date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+        const timeStr = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+        const mins = Math.floor(d.t / 60);
+        const secs = Math.round(d.t % 60);
+        window.parent.postMessage({
+          type: "INCIDENT_CLICK",
+          data: {
+            date: `${dateStr} at ${timeStr}`,
+            responseTime: `${mins} min ${secs} sec`,
+            callTypeGroup: d.callTypeGroup,
+            stationArea: d.stationArea,
+            address: d.address,
+            zipcode: d.zipcode
+          }
+        }, "*");
+      });
 
     stationsLayer = container.append("g").attr("display", "none"); // changed from svg to container to fix zooming
 
