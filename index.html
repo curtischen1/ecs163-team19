@@ -10,6 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Alata&family=Inknut+Antiqua&family=Licorice&family=Lora:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script src="script.js" defer></script>
 </head>
 
@@ -22,22 +23,13 @@
 
                 <section id="bar-chart-section">
                     <div id="bar-chart">
-                        <div class="chart-axis y-axis">EMS Response Time</div>
+                        <div class="chart-axis y-axis">EMS Response (min)</div>
 
-                        <div id="bars">
-                            <div class="bar" style="height: 150px;"></div>
-                            <div class="bar" style="height: 128px;"></div>
-                            <div class="bar" style="height: 112px;"></div>
-                            <div class="bar selected-bar" style="height: 88px;"></div>
-                            <div class="bar" style="height: 80px;"></div>
-                            <div class="bar" style="height: 70px;"></div>
-                            <div class="bar" style="height: 64px;"></div>
-                            <div class="bar" style="height: 64px;"></div>
-                            <div class="bar" style="height: 64px;"></div>
-                        </div>
+                        <!-- D3 renders the income-vs-response bars into this SVG (see script.js) -->
+                        <svg id="bar-svg"></svg>
 
                         <div class="chart-axis x-axis" id="bar-chart-label">
-                            Income by Zipcode
+                            Income by Zipcode ($k)
                         </div>
                     </div>
                 </section>
