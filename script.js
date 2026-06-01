@@ -82,8 +82,8 @@
 
     function updateMapSrc() {
         const params = new URLSearchParams();
-        if (currentBoundary === "tract") params.set("boundary", "tract");
         params.set("month", currentMonth);
+        if (currentBoundary === "tract") params.set("boundary", "tract");
         mapFrame.src = "map.html?" + params.toString();
     }
 
@@ -328,5 +328,3 @@
 
     renderBarChart(); // draw the chart on initial page load
 })();
-
-
