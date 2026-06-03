@@ -51,7 +51,32 @@ h1 {
 #bar-chart-section {
     width: 100%;
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+/* Income / Severity segmented toggle above the bar chart */
+#chart-mode-toggle {
+    display: inline-flex;
+    border: 2px solid #420cc5;
+    border-radius: 18px;
+    overflow: hidden;
+}
+
+.mode-btn {
+    border: none;
+    background: transparent;
+    color: #420cc5;
+    font-family: "Alata", sans-serif;
+    font-size: 13px;
+    padding: 5px 18px;
+    cursor: pointer;
+}
+
+.mode-btn.selected {
+    background: #8a0fcb;
+    color: #ffffff;
 }
 
 #bar-chart {
@@ -72,6 +97,44 @@ h1 {
 
 #bar-svg .bar {
     fill: #6f88b9;
+}
+
+/* Stacked income bars: life-threatening highlighted, other calls muted */
+#bar-svg .bar-lt {
+    fill: #8300cf;
+}
+
+#bar-svg .bar-other {
+    fill: #c7d2e8;
+}
+
+/* Legend for the stacked income bars */
+#bar-legend {
+    display: flex;
+    gap: 14px;
+    font-size: 12px;
+    color: #233962;
+}
+
+.lg-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.lg-swatch {
+    width: 11px;
+    height: 11px;
+    border-radius: 2px;
+    display: inline-block;
+}
+
+.lg-swatch.lt {
+    background: #8300cf;
+}
+
+.lg-swatch.other {
+    background: #c7d2e8;
 }
 
 #bar-svg .axis-line {
@@ -99,7 +162,7 @@ h1 {
 }
 
 .y-axis {
-    left: -38px;
+    left: -8px;
     top: 87px;
     transform: rotate(-90deg);
     transform-origin: center;

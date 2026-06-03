@@ -4,13 +4,34 @@
     const zipcodeToggle = document.querySelector("#zipcode-toggle");
     const tractToggle = document.querySelector("#tract-toggle");
     const firestationToggle = document.querySelector("#firestation-toggle");
+    const incomeModeBtn = document.querySelector("#income-mode");
+    const severityModeBtn = document.querySelector("#severity-mode");
     const mapFrame = document.querySelector("#heatmap-frame");
     const barChartLabel = document.querySelector("#bar-chart-label");
     const months = document.querySelectorAll(".month");
 
     let currentBoundary = "zipcode";
     let currentMonth = "mar";
+    let currentChartMode = "income"; // "income" | "severity"
     let firestationsVisible = false;
+
+    const barChartYLabel = document.querySelector("#bar-chart-ylabel");
+    const barLegend = document.querySelector("#bar-legend");
+
+    // Axis captions + legend depend on the chart mode (and, for income, boundary).
+    function updateChartLabel() {
+        if (currentChartMode === "severity") {
+            barChartLabel.textContent = "Call Severity";
+            barChartYLabel.textContent = "EMS Response (min)";
+            barLegend.style.display = "none";
+        } else {
+            barChartLabel.textContent = currentBoundary === "tract"
+                ? "Median Income, Census Tract ($k)"
+                : "Median Income, Zipcode ($k)";
+            barChartYLabel.textContent = "EMS Calls";
+            barLegend.style.display = "";
+        }
+    }
 
     zipcodeToggle.addEventListener("click", function () {
         currentBoundary = "zipcode";
@@ -18,8 +39,7 @@
         zipcodeToggle.classList.add("selected");
         tractToggle.classList.remove("selected");
 
-        barChartLabel.textContent = "Income by Zipcode ($k)";
-
+        updateChartLabel();
 
         //mapFrame.src = "zip.html";
         //mapFrame.src = "map.html";
@@ -35,8 +55,7 @@
         tractToggle.classList.add("selected");
         zipcodeToggle.classList.remove("selected");
 
-        barChartLabel.textContent = "Income by Census Tract ($k)";
-
+        updateChartLabel();
 
         //mapFrame.src = "heatmap.html";
         //mapFrame.src = "map.html?boundary=tract";
@@ -44,6 +63,24 @@
 
         updateMapSettings();
         renderBarChart(); // re-bin the chart using tract-level income
+    });
+
+    // Income / Severity view switch. Severity is city-wide, so it ignores the
+    // zip/tract boundary but still responds to the selected month.
+    incomeModeBtn.addEventListener("click", function () {
+        currentChartMode = "income";
+        incomeModeBtn.classList.add("selected");
+        severityModeBtn.classList.remove("selected");
+        updateChartLabel();
+        renderBarChart();
+    });
+
+    severityModeBtn.addEventListener("click", function () {
+        currentChartMode = "severity";
+        severityModeBtn.classList.add("selected");
+        incomeModeBtn.classList.remove("selected");
+        updateChartLabel();
+        renderBarChart();
     });
 
     firestationToggle.addEventListener("click", function () {
@@ -143,27 +180,42 @@
     }
 
     /* =========================================================================
-       Income vs. EMS response-time bar chart
+       Income mode: EMS call volume by income bracket, split by severity
        -------------------------------------------------------------------------
-       Reads response_by_region.json, a precomputed average EMS response time
-       per region for each month:
-         { "<month>": { "zip":   { "<zcta>":  {avgMin, n}, ... },
-                        "tract": { "<geoid>": {avgMin, n}, ... } }, ... }
+       Reads severity_by_region.json, precomputed per-region call counts:
+         { "<month>": { "zip":   { "<zcta>":  {lt, total}, ... },
+                        "tract": { "<geoid>": {lt, total}, ... } }, ... }
+       where lt = life-threatening calls, total = all calls.
        At runtime we:
          1. Load that file + the income CSV for the current boundary.
-         2. Join each region's avgMin/n to its income by ID.
-         3. Pool into income brackets, weighted by incident count n.
-         4. Draw the bars.
+         2. Build EVEN income brackets from the data (quantiles), since SF income
+            is right-skewed and fixed-width bins pile most regions into one bar.
+         3. Pool each region's lt/total into its bracket.
+         4. Draw stacked bars: life-threatening vs. other calls.
+       The stack height shows volume (poorer areas call more); the highlighted
+       segment shows the life-threatening share (higher in poorer areas).
        ========================================================================= */
 
-    // Income brackets ($). Fixed count -> chart stays legible in both modes.
-    const BRACKETS = [
-        { label: "<50",     min: 0,      max: 50000 },
-        { label: "50–75",   min: 50000,  max: 75000 },
-        { label: "75–100",  min: 75000,  max: 100000 },
-        { label: "100–150", min: 100000, max: 150000 },
-        { label: "150+",    min: 150000, max: Infinity }
-    ];
+    const NUM_BRACKETS = 5; // income quantile bins
+
+    // Split regions into NUM_BRACKETS even-sized income bins. Returns the upper
+    // edges (length NUM_BRACKETS-1) plus short multi-line labels per bar.
+    function incomeBrackets(incomes) {
+        const sorted = [...incomes].sort((a, b) => a - b);
+        const edges = [];
+        for (let i = 1; i < NUM_BRACKETS; i++) {
+            const e = sorted[Math.min(Math.floor((i / NUM_BRACKETS) * sorted.length), sorted.length - 1)];
+            edges.push(Math.round(e / 5000) * 5000); // round to $5k for clean labels
+        }
+        const k = (v) => Math.round(v / 1000); // → $k
+        const labels = edges.map((e, i) =>
+            i === 0
+                ? { label: "b0", lines: ["<" + k(e)] }
+                : { label: "b" + i, lines: [k(edges[i - 1]) + "–", String(k(e))] }
+        );
+        labels.push({ label: "b" + edges.length, lines: [k(edges[edges.length - 1]) + "+"] });
+        return { edges, labels };
+    }
 
     // Per boundary: which income CSV + which column is the join id.
     const BOUNDARY_CONFIG = {
@@ -171,9 +223,19 @@
         tract:   { csv: "sf_tract_income.csv", csvKey: "geoid", dataKey: "tract" }
     };
 
+    // Severity categories (SFFD call_type_group), in a fixed display order.
+    // `label` is the unique x-scale key; `lines` is how it wraps under the bar.
+    const SEVERITIES = [
+        { key: "Potentially Life-Threatening", label: "Life-Threatening", lines: ["Life-", "Threat."] },
+        { key: "Fire",                         label: "Fire",             lines: ["Fire"] },
+        { key: "Non Life-threatening",         label: "Non Life-threat.", lines: ["Non Life-", "threat."] },
+        { key: "Alarm",                        label: "Alarm",            lines: ["Alarm"] }
+    ];
+
     // Caches so toggling/re-selecting doesn't re-load files.
     const incomeCache = {};               // csv file -> Map(id -> income)
-    let responseData = null;              // parsed response_by_region.json
+    let regionCounts = null;              // parsed severity_by_region.json
+    let severityData = null;              // parsed response_by_severity.json
 
     // Parse the income CSV into Map(joinId -> median income), dropping blanks.
     async function loadIncome(cfg) {
@@ -191,12 +253,22 @@
         return incomeCache[cfg.csv];
     }
 
-    // Load the precomputed response file once.
-    async function loadResponse() {
-        if (!responseData) {
-            responseData = await d3.json("response_by_region.json");
+    // Load the precomputed per-region call counts once.
+    // Shape: { "<month>": { "zip": {id:{lt,total}}, "tract": {id:{lt,total}} } }
+    async function loadRegionCounts() {
+        if (!regionCounts) {
+            regionCounts = await d3.json("severity_by_region.json");
         }
-        return responseData;
+        return regionCounts;
+    }
+
+    // Load the precomputed severity file once.
+    // Shape: { "<month>": { "<call_type_group>": {avgMin, median, n}, ... }, ... }
+    async function loadSeverity() {
+        if (!severityData) {
+            severityData = await d3.json("response_by_severity.json");
+        }
+        return severityData;
     }
 
     // Draw a short message in the SVG instead of bars (e.g. data failed to load).
@@ -211,44 +283,94 @@
             .text(text);
     }
 
-    async function renderBarChart() {
+    // Dispatch to the chart for the active mode.
+    function renderBarChart() {
+        return currentChartMode === "severity"
+            ? renderSeverityChart()
+            : renderIncomeChart();
+    }
+
+    async function renderIncomeChart() {
         const cfg = BOUNDARY_CONFIG[currentBoundary];
 
         try {
             showChartMessage("Loading…");
 
-            // load the precomputed response file + income CSV (both cached)
-            const [response, income] = await Promise.all([
-                loadResponse(),
+            const [counts, income] = await Promise.all([
+                loadRegionCounts(),
                 loadIncome(cfg)
             ]);
 
-            const monthData = response[currentMonth];
+            const monthData = counts[currentMonth];
             const regionMap = monthData ? monthData[cfg.dataKey] : null;
             if (!regionMap) {
                 showChartMessage("No data for this month.");
                 return;
             }
 
-            // Pool into brackets, weighted by incident count n.
-            const totals = BRACKETS.map(() => ({ sum: 0, count: 0 }));
+            // Regions that have both income and calls this month.
+            const regions = [];
             for (const [id, rec] of Object.entries(regionMap)) {
                 const inc = income.get(id);
-                if (inc == null) continue; // skip regions with no income (blanks)
-
-                const bi = BRACKETS.findIndex((b) => inc >= b.min && inc < b.max);
-                if (bi >= 0) {
-                    totals[bi].sum += rec.avgMin * rec.n; // weight by incidents
-                    totals[bi].count += rec.n;
-                }
+                if (inc != null && rec.total > 0) regions.push({ inc, rec });
+            }
+            if (!regions.length) {
+                showChartMessage("No data for this month.");
+                return;
             }
 
-            // Weighted average response time (minutes) per bracket.
-            const data = BRACKETS.map((b, i) => ({
-                label: b.label,
-                minutes: totals[i].count ? totals[i].sum / totals[i].count : 0,
-                count: totals[i].count
+            // Even (quantile) income bins computed from the regions present.
+            const { edges, labels } = incomeBrackets(regions.map((r) => r.inc));
+            const binOf = (inc) => {
+                let b = 0;
+                while (b < edges.length && inc >= edges[b]) b++;
+                return b;
+            };
+
+            const totals = labels.map(() => ({ lt: 0, total: 0 }));
+            for (const { inc, rec } of regions) {
+                const t = totals[binOf(inc)];
+                t.lt += rec.lt;
+                t.total += rec.total;
+            }
+
+            // Stacked: life-threatening vs. everything else.
+            const data = labels.map((l, i) => ({
+                label: l.label,
+                lines: l.lines,
+                lt: totals[i].lt,
+                other: totals[i].total - totals[i].lt,
+                total: totals[i].total
             }));
+
+            drawStackedBars(data);
+        } catch (err) {
+            console.error(err);
+            showChartMessage("Chart data could not load.");
+        }
+    }
+
+    // City-wide average EMS response time per call-severity tier for the month.
+    async function renderSeverityChart() {
+        try {
+            showChartMessage("Loading…");
+
+            const severity = await loadSeverity();
+            const monthData = severity[currentMonth];
+            if (!monthData) {
+                showChartMessage("No data for this month.");
+                return;
+            }
+
+            const data = SEVERITIES.map((s) => {
+                const rec = monthData[s.key];
+                return {
+                    label: s.label,
+                    lines: s.lines,
+                    minutes: rec ? rec.avgMin : 0,
+                    count: rec ? rec.n : 0
+                };
+            });
 
             drawBars(data);
         } catch (err) {
@@ -264,7 +386,7 @@
 
         const W = 250;
         const H = 190;
-        const margin = { top: 8, right: 6, bottom: 22, left: 30 };
+        const margin = { top: 8, right: 6, bottom: 34, left: 30 };
         const innerW = W - margin.left - margin.right;
         const innerH = H - margin.top - margin.bottom;
 
@@ -304,16 +426,26 @@
             .attr("text-anchor", "end")
             .text((d) => d);
 
-        // X axis bracket labels
+        // X axis labels (income brackets render on one line; severity labels
+        // may wrap onto multiple lines via d.lines).
         g.selectAll(".x-tick")
             .data(data)
             .enter()
             .append("text")
             .attr("class", "tick-label")
-            .attr("x", (d) => x(d.label) + x.bandwidth() / 2)
             .attr("y", innerH + 14)
             .attr("text-anchor", "middle")
-            .text((d) => d.label);
+            .each(function (d) {
+                const cx = x(d.label) + x.bandwidth() / 2;
+                const lines = d.lines || [d.label];
+                const t = d3.select(this);
+                lines.forEach((ln, i) => {
+                    t.append("tspan")
+                        .attr("x", cx)
+                        .attr("dy", i === 0 ? 0 : 10)
+                        .text(ln);
+                });
+            });
 
         // Axis lines
         g.append("line")
@@ -326,5 +458,97 @@
             .attr("x2", innerW).attr("y2", innerH);
     }
 
+    // Stacked bars: life-threatening (bottom, highlighted) + other calls (top).
+    // data: [{ label, lines, lt, other, total }]
+    function drawStackedBars(data) {
+        const svg = d3.select("#bar-svg");
+        svg.selectAll("*").remove();
+
+        const W = 250;
+        const H = 190;
+        const margin = { top: 8, right: 6, bottom: 34, left: 34 };
+        const innerW = W - margin.left - margin.right;
+        const innerH = H - margin.top - margin.bottom;
+
+        const g = svg.append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        const x = d3.scaleBand()
+            .domain(data.map((d) => d.label))
+            .range([0, innerW])
+            .padding(0.25);
+
+        const y = d3.scaleLinear()
+            .domain([0, d3.max(data, (d) => d.total) || 1])
+            .nice()
+            .range([innerH, 0]);
+
+        // Two stacked segments per bar.
+        const groups = g.selectAll(".bar-group")
+            .data(data)
+            .enter()
+            .append("g")
+            .attr("transform", (d) => `translate(${x(d.label)},0)`);
+
+        // life-threatening sits on the axis…
+        groups.append("rect")
+            .attr("class", "bar-lt")
+            .attr("x", 0)
+            .attr("y", (d) => y(d.lt))
+            .attr("width", x.bandwidth())
+            .attr("height", (d) => innerH - y(d.lt));
+
+        // …other calls stack on top of it.
+        groups.append("rect")
+            .attr("class", "bar-other")
+            .attr("x", 0)
+            .attr("y", (d) => y(d.total))
+            .attr("width", x.bandwidth())
+            .attr("height", (d) => y(d.lt) - y(d.total));
+
+        // Y axis ticks (call counts, abbreviated as k).
+        const fmt = (d) => (d >= 1000 ? d / 1000 + "k" : d);
+        g.selectAll(".y-tick")
+            .data(y.ticks(4))
+            .enter()
+            .append("text")
+            .attr("class", "tick-label")
+            .attr("x", -6)
+            .attr("y", (d) => y(d) + 3)
+            .attr("text-anchor", "end")
+            .text(fmt);
+
+        // X axis income-bracket labels (multi-line via d.lines).
+        g.selectAll(".x-tick")
+            .data(data)
+            .enter()
+            .append("text")
+            .attr("class", "tick-label")
+            .attr("y", innerH + 14)
+            .attr("text-anchor", "middle")
+            .each(function (d) {
+                const cx = x(d.label) + x.bandwidth() / 2;
+                const lines = d.lines || [d.label];
+                const t = d3.select(this);
+                lines.forEach((ln, i) => {
+                    t.append("tspan")
+                        .attr("x", cx)
+                        .attr("dy", i === 0 ? 0 : 10)
+                        .text(ln);
+                });
+            });
+
+        // Axis lines
+        g.append("line")
+            .attr("class", "axis-line")
+            .attr("x1", 0).attr("y1", 0)
+            .attr("x2", 0).attr("y2", innerH);
+        g.append("line")
+            .attr("class", "axis-line")
+            .attr("x1", 0).attr("y1", innerH)
+            .attr("x2", innerW).attr("y2", innerH);
+    }
+
+    updateChartLabel();
     renderBarChart(); // draw the chart on initial page load
 })();

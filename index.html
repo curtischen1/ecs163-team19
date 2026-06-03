@@ -22,14 +22,26 @@
             <aside id="left-panel">
 
                 <section id="bar-chart-section">
-                    <div id="bar-chart">
-                        <div class="chart-axis y-axis">EMS Response (min)</div>
+                    <!-- Switches the bars between the income-vs-response and severity-vs-response views -->
+                    <div id="chart-mode-toggle">
+                        <button type="button" id="income-mode" class="mode-btn selected">Income</button>
+                        <button type="button" id="severity-mode" class="mode-btn">Severity</button>
+                    </div>
 
-                        <!-- D3 renders the income-vs-response bars into this SVG (see script.js) -->
+                    <!-- Legend for the income view's stacked bars (shown in income mode only) -->
+                    <div id="bar-legend">
+                        <span class="lg-item"><span class="lg-swatch lt"></span>Life-threatening</span>
+                        <span class="lg-item"><span class="lg-swatch other"></span>Other calls</span>
+                    </div>
+
+                    <div id="bar-chart">
+                        <div class="chart-axis y-axis" id="bar-chart-ylabel">EMS Calls</div>
+
+                        <!-- D3 renders the bars into this SVG (see script.js) -->
                         <svg id="bar-svg"></svg>
 
                         <div class="chart-axis x-axis" id="bar-chart-label">
-                            Income by Zipcode ($k)
+                            Median Income, Zipcode ($k)
                         </div>
                     </div>
                 </section>

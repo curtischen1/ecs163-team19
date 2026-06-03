@@ -1,0 +1,266 @@
+{
+"jan": {
+"Potentially Life-Threatening": {
+"avgMin": 9.58,
+"median": 7.73,
+"n": 12237
+},
+"Alarm": {
+"avgMin": 7.39,
+"median": 6.67,
+"n": 5135
+},
+"Non Life-threatening": {
+"avgMin": 16.93,
+"median": 15.1,
+"n": 5376
+},
+"Fire": {
+"avgMin": 8.24,
+"median": 6.5,
+"n": 1003
+}
+},
+"feb": {
+"Non Life-threatening": {
+"avgMin": 16.82,
+"median": 14.95,
+"n": 5130
+},
+"Potentially Life-Threatening": {
+"avgMin": 9.34,
+"median": 7.53,
+"n": 10883
+},
+"Alarm": {
+"avgMin": 7.73,
+"median": 6.75,
+"n": 5229
+},
+"Fire": {
+"avgMin": 8.25,
+"median": 6.68,
+"n": 914
+}
+},
+"mar": {
+"Potentially Life-Threatening": {
+"avgMin": 9.38,
+"median": 7.62,
+"n": 11933
+},
+"Non Life-threatening": {
+"avgMin": 17.2,
+"median": 15.3,
+"n": 5339
+},
+"Alarm": {
+"avgMin": 7.77,
+"median": 6.77,
+"n": 4711
+},
+"Fire": {
+"avgMin": 8.39,
+"median": 6.58,
+"n": 898
+}
+},
+"apr": {
+"Fire": {
+"avgMin": 9.45,
+"median": 7.28,
+"n": 887
+},
+"Non Life-threatening": {
+"avgMin": 17.02,
+"median": 15.15,
+"n": 5009
+},
+"Potentially Life-Threatening": {
+"avgMin": 9.54,
+"median": 7.7,
+"n": 11130
+},
+"Alarm": {
+"avgMin": 7.92,
+"median": 6.82,
+"n": 4338
+}
+},
+"may": {
+"Non Life-threatening": {
+"avgMin": 16.98,
+"median": 15.24,
+"n": 5180
+},
+"Alarm": {
+"avgMin": 7.95,
+"median": 6.8,
+"n": 4616
+},
+"Potentially Life-Threatening": {
+"avgMin": 9.5,
+"median": 7.68,
+"n": 11756
+},
+"Fire": {
+"avgMin": 10.3,
+"median": 7.32,
+"n": 913
+}
+},
+"jun": {
+"Potentially Life-Threatening": {
+"avgMin": 9.4,
+"median": 7.57,
+"n": 11068
+},
+"Non Life-threatening": {
+"avgMin": 16.8,
+"median": 15.12,
+"n": 4852
+},
+"Alarm": {
+"avgMin": 7.95,
+"median": 6.73,
+"n": 4478
+},
+"Fire": {
+"avgMin": 9.33,
+"median": 7.35,
+"n": 931
+}
+},
+"jul": {
+"Alarm": {
+"avgMin": 7.86,
+"median": 6.83,
+"n": 4907
+},
+"Potentially Life-Threatening": {
+"avgMin": 9.39,
+"median": 7.58,
+"n": 11519
+},
+"Non Life-threatening": {
+"avgMin": 16.91,
+"median": 15.17,
+"n": 5258
+},
+"Fire": {
+"avgMin": 8.96,
+"median": 6.92,
+"n": 1004
+}
+},
+"aug": {
+"Potentially Life-Threatening": {
+"avgMin": 9.4,
+"median": 7.67,
+"n": 11519
+},
+"Non Life-threatening": {
+"avgMin": 16.74,
+"median": 15.08,
+"n": 5294
+},
+"Alarm": {
+"avgMin": 7.84,
+"median": 6.85,
+"n": 5069
+},
+"Fire": {
+"avgMin": 9.48,
+"median": 7.1,
+"n": 980
+}
+},
+"sep": {
+"Potentially Life-Threatening": {
+"avgMin": 9.64,
+"median": 7.68,
+"n": 11116
+},
+"Non Life-threatening": {
+"avgMin": 17.94,
+"median": 16.07,
+"n": 4953
+},
+"Alarm": {
+"avgMin": 7.89,
+"median": 6.83,
+"n": 5257
+},
+"Fire": {
+"avgMin": 10.6,
+"median": 7.52,
+"n": 975
+}
+},
+"oct": {
+"Non Life-threatening": {
+"avgMin": 17.57,
+"median": 16.02,
+"n": 5235
+},
+"Potentially Life-Threatening": {
+"avgMin": 9.75,
+"median": 7.8,
+"n": 12081
+},
+"Fire": {
+"avgMin": 9.57,
+"median": 7.08,
+"n": 1026
+},
+"Alarm": {
+"avgMin": 7.87,
+"median": 6.82,
+"n": 5423
+}
+},
+"nov": {
+"Alarm": {
+"avgMin": 7.64,
+"median": 6.7,
+"n": 5488
+},
+"Non Life-threatening": {
+"avgMin": 17.29,
+"median": 15.35,
+"n": 5089
+},
+"Potentially Life-Threatening": {
+"avgMin": 9.55,
+"median": 7.73,
+"n": 11393
+},
+"Fire": {
+"avgMin": 8.7,
+"median": 7.08,
+"n": 971
+}
+},
+"dec": {
+"Potentially Life-Threatening": {
+"avgMin": 9.54,
+"median": 7.8,
+"n": 12344
+},
+"Non Life-threatening": {
+"avgMin": 17.55,
+"median": 15.73,
+"n": 5139
+},
+"Alarm": {
+"avgMin": 7.82,
+"median": 6.9,
+"n": 6217
+},
+"Fire": {
+"avgMin": 9.4,
+"median": 7.15,
+"n": 934
+}
+}
+}
