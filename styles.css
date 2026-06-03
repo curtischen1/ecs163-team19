@@ -108,6 +108,22 @@ h1 {
     fill: #c7d2e8;
 }
 
+/* Outline on the bracket bar of the region clicked on the map */
+#bar-svg .bar-highlight {
+    fill: none;
+    stroke: #ff8a00;
+    stroke-width: 2.5;
+}
+
+/* Caption naming the clicked region under the chart */
+#region-note {
+    min-height: 16px;
+    font-size: 12px;
+    color: #8300cf;
+    text-align: center;
+    margin-top: 2px;
+}
+
 /* Legend for the stacked income bars */
 #bar-legend {
     display: flex;

@@ -158,6 +158,19 @@ document.addEventListener("wheel", function(e) {e.preventDefault();}, { passive:
 
 let stationsLayer = null;
 let dotsLayer = null;
+let regionPaths = null;          // d3 selection of region boundary paths
+let regionIdFn = null;           // (feature) -> region id for the current boundary
+let highlightedRegionId = null;  // region the parent asked us to outline
+
+// Outline the highlighted region (orange) and reset the rest.
+function applyRegionHighlight() {
+  if (!regionPaths) return;
+  regionPaths
+    .attr("stroke", d => regionIdFn(d) === highlightedRegionId ? "#ff8a00" : "#14071f")
+    .attr("stroke-width", d => regionIdFn(d) === highlightedRegionId ? 2.5 : 0.8)
+    .filter(d => regionIdFn(d) === highlightedRegionId)
+    .raise();
+}
 
 /*window.addEventListener("message", (event) => {
   if (event.data.type === "SET_FIRESTATIONS" && stationsLayer) {
@@ -173,6 +186,10 @@ window.addEventListener("message", function (event) {
     }
     if (event.data.type === "ZOOM_OUT") {
         zoom.scaleBy(svg.transition().duration(300), 1 / 1.5);
+    }
+    if (event.data.type === "SET_REGION_HIGHLIGHT") {
+        highlightedRegionId = event.data.id;
+        applyRegionHighlight();
     }
 });
 
@@ -330,15 +347,29 @@ async function init() {
       .attr("fill-rule", "evenodd")
       .attr("stroke", "none");
 
-    container.append("g") // changed from svg to container to fix zooming
+    const isTract = params.get("boundary") === "tract";
+    regionIdFn = (f) => isTract ? f.properties.GEOID : f.properties.ZCTA5CE20;
+
+    regionPaths = container.append("g") // region boundaries (clickable)
       .selectAll("path")
       .data(tracts.features)
       .enter()
       .append("path")
       .attr("d", pathGen)
-      .attr("fill", "none")
+      .attr("fill", "transparent")        // transparent (not "none") so the interior is clickable
+      .attr("pointer-events", "all")
+      .style("cursor", "pointer")
       .attr("stroke", "#14071f")
-      .attr("stroke-width", 0.8);
+      .attr("stroke-width", 0.8)
+      .on("click", function (event, d) {
+        const id = regionIdFn(d);
+        if (id == null) return;
+        window.parent.postMessage({
+          type: "REGION_CLICK",
+          id: String(id),
+          boundary: isTract ? "tract" : "zipcode"
+        }, "*");
+      });
 
     dotsLayer = container.append("g").attr("id", "dots-layer");
 

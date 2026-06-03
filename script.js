@@ -15,6 +15,11 @@
     let currentChartMode = "income"; // "income" | "severity"
     let firestationsVisible = false;
 
+    // Region selected by clicking the map (zcta or geoid). Highlights its income
+    // bracket on the chart + outlines the region on the map. Null = none.
+    let selectedRegionId = null;
+    let lastIncomeMap = null; // income Map from the most recent income render
+
     const barChartYLabel = document.querySelector("#bar-chart-ylabel");
     const barLegend = document.querySelector("#bar-legend");
 
@@ -39,6 +44,7 @@
         zipcodeToggle.classList.add("selected");
         tractToggle.classList.remove("selected");
 
+        clearRegionSelection(); // region ids differ between zip/tract
         updateChartLabel();
 
         //mapFrame.src = "zip.html";
@@ -55,6 +61,7 @@
         tractToggle.classList.add("selected");
         zipcodeToggle.classList.remove("selected");
 
+        clearRegionSelection(); // region ids differ between zip/tract
         updateChartLabel();
 
         //mapFrame.src = "heatmap.html";
@@ -65,13 +72,18 @@
         renderBarChart(); // re-bin the chart using tract-level income
     });
 
-    // Income / Severity view switch. Severity is city-wide, so it ignores the
-    // zip/tract boundary but still responds to the selected month.
-    incomeModeBtn.addEventListener("click", function () {
+    // Switch the chart to income mode (no re-render; caller renders).
+    function switchToIncomeMode() {
         currentChartMode = "income";
         incomeModeBtn.classList.add("selected");
         severityModeBtn.classList.remove("selected");
         updateChartLabel();
+    }
+
+    // Income / Severity view switch. Severity is city-wide, so it ignores the
+    // zip/tract boundary but still responds to the selected month.
+    incomeModeBtn.addEventListener("click", function () {
+        switchToIncomeMode();
         renderBarChart();
     });
 
@@ -96,6 +108,7 @@
     window.addEventListener("message", function (event) {
         if (event.data.type === "MAP_READY") {
             sendFirestationState();
+            sendRegionHighlight(); // re-apply the outline after a (re)load
         }
         if (event.data.type === "INCIDENT_CLICK") {
             const { date, responseTime, callTypeGroup, stationArea, address, zipcode } = event.data.data;
@@ -108,7 +121,50 @@
             document.getElementById("incident-address").textContent = address;
             document.getElementById("incident-zipcode").textContent = zipcode;
         }
+        if (event.data.type === "REGION_CLICK") {
+            handleRegionClick(event.data.id, event.data.boundary);
+        }
     });
+
+    // A region was clicked on the map: toggle selection, ensure income mode,
+    // re-render (which draws the bar highlight), then sync the note + map outline.
+    async function handleRegionClick(id, boundary) {
+        if (boundary !== currentBoundary) return; // stale message mid-transition
+        selectedRegionId = (selectedRegionId === id) ? null : id;
+
+        if (currentChartMode !== "income") switchToIncomeMode();
+        await renderBarChart();
+
+        updateRegionNote();
+        sendRegionHighlight();
+    }
+
+    function clearRegionSelection() {
+        selectedRegionId = null;
+        updateRegionNote();
+    }
+
+    // Tell the map which region to outline (id may be null to clear).
+    function sendRegionHighlight() {
+        mapFrame.contentWindow.postMessage(
+            { type: "SET_REGION_HIGHLIGHT", id: selectedRegionId },
+            "*"
+        );
+    }
+
+    // Small caption under the chart describing the selected region.
+    function updateRegionNote() {
+        const note = document.getElementById("region-note");
+        if (!note) return;
+        if (selectedRegionId == null) {
+            note.textContent = "";
+            return;
+        }
+        const inc = lastIncomeMap ? lastIncomeMap.get(selectedRegionId) : null;
+        note.textContent = inc != null
+            ? `${selectedRegionId} · $${Math.round(inc / 1000)}k median`
+            : `${selectedRegionId} · no income data`;
+    }
 
     function sendFirestationState() {
         mapFrame.contentWindow.postMessage(
@@ -217,6 +273,13 @@
         return { edges, labels };
     }
 
+    // Which bracket (0..NUM_BRACKETS-1) an income falls into, given the edges.
+    function bracketIndex(income, edges) {
+        let b = 0;
+        while (b < edges.length && income >= edges[b]) b++;
+        return b;
+    }
+
     // Per boundary: which income CSV + which column is the join id.
     const BOUNDARY_CONFIG = {
         zipcode: { csv: "sf_zip_income.csv",   csvKey: "zcta",  dataKey: "zip" },
@@ -300,6 +363,7 @@
                 loadRegionCounts(),
                 loadIncome(cfg)
             ]);
+            lastIncomeMap = income; // used by the region-click note
 
             const monthData = counts[currentMonth];
             const regionMap = monthData ? monthData[cfg.dataKey] : null;
@@ -321,15 +385,10 @@
 
             // Even (quantile) income bins computed from the regions present.
             const { edges, labels } = incomeBrackets(regions.map((r) => r.inc));
-            const binOf = (inc) => {
-                let b = 0;
-                while (b < edges.length && inc >= edges[b]) b++;
-                return b;
-            };
 
             const totals = labels.map(() => ({ lt: 0, total: 0 }));
             for (const { inc, rec } of regions) {
-                const t = totals[binOf(inc)];
+                const t = totals[bracketIndex(inc, edges)];
                 t.lt += rec.lt;
                 t.total += rec.total;
             }
@@ -343,7 +402,14 @@
                 total: totals[i].total
             }));
 
-            drawStackedBars(data);
+            // Which bar to outline: the selected region's income bracket.
+            let highlightIdx = -1;
+            if (selectedRegionId != null) {
+                const selInc = income.get(selectedRegionId);
+                if (selInc != null) highlightIdx = bracketIndex(selInc, edges);
+            }
+
+            drawStackedBars(data, highlightIdx);
         } catch (err) {
             console.error(err);
             showChartMessage("Chart data could not load.");
@@ -460,7 +526,8 @@
 
     // Stacked bars: life-threatening (bottom, highlighted) + other calls (top).
     // data: [{ label, lines, lt, other, total }]
-    function drawStackedBars(data) {
+    // highlightIdx: bracket index to outline (selected region), or -1 for none.
+    function drawStackedBars(data, highlightIdx = -1) {
         const svg = d3.select("#bar-svg");
         svg.selectAll("*").remove();
 
@@ -505,6 +572,17 @@
             .attr("y", (d) => y(d.total))
             .attr("width", x.bandwidth())
             .attr("height", (d) => y(d.lt) - y(d.total));
+
+        // Outline the selected region's bracket bar (drawn on top of the bars).
+        if (highlightIdx >= 0 && highlightIdx < data.length) {
+            const d = data[highlightIdx];
+            g.append("rect")
+                .attr("class", "bar-highlight")
+                .attr("x", x(d.label) - 2)
+                .attr("y", y(d.total) - 2)
+                .attr("width", x.bandwidth() + 4)
+                .attr("height", innerH - y(d.total) + 4);
+        }
 
         // Y axis ticks (call counts, abbreviated as k).
         const fmt = (d) => (d >= 1000 ? d / 1000 + "k" : d);
