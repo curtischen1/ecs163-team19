@@ -219,6 +219,42 @@ h1 {
     color: #8300cf;
 }
 
+/* Incident Count Slider */
+
+#incident-count-section {
+    width: 285px;
+    color: #233962;
+}
+
+#incident-count-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+#incident-count-header h2 {
+    font-size: 20px;
+    font-weight: 400;
+}
+
+#incident-count-input {
+    width: 72px;
+    border: 2px solid #6f88b9;
+    border-radius: 6px;
+    padding: 2px 6px;
+    font-family: "Alata", sans-serif;
+    font-size: 14px;
+    color: #233962;
+    text-align: right;
+}
+
+#incident-slider {
+    width: 100%;
+    accent-color: #8a0fcb;
+    cursor: pointer;
+}
+
 /* Map Area */
 
 #map-area {

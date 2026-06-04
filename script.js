@@ -1,6 +1,13 @@
 (function () {
     "use strict";
 
+    const incidentSlider = document.querySelector("#incident-slider");
+    const incidentCountInput = document.querySelector("#incident-count-input");
+
+    function sendSampleSize(size) {
+        mapFrame.contentWindow.postMessage({ type: "SET_SAMPLE_SIZE", size }, "*");
+    }
+
     const zipcodeToggle = document.querySelector("#zipcode-toggle");
     const tractToggle = document.querySelector("#tract-toggle");
     const firestationToggle = document.querySelector("#firestation-toggle");
@@ -51,12 +58,27 @@
         updateMapSettings();
     });
 
+    incidentSlider.addEventListener("input", function () {
+        const val = parseInt(incidentSlider.value);
+        incidentCountInput.value = val;
+        sendSampleSize(val);
+    });
+
+    incidentCountInput.addEventListener("change", function () {
+        let val = parseInt(incidentCountInput.value) || 0;
+        val = Math.max(0, Math.min(10000, val));
+        incidentCountInput.value = val;
+        incidentSlider.value = val;
+        sendSampleSize(val);
+    });
+
     /*mapFrame.addEventListener("load", function () {
         sendFirestationState();
     });*/
     window.addEventListener("message", function (event) {
         if (event.data.type === "MAP_READY") {
             sendFirestationState();
+            sendSampleSize(parseInt(incidentSlider.value));
         }
         if (event.data.type === "INCIDENT_CLICK") {
             const { date, responseTime, callTypeGroup, stationArea, address, zipcode } = event.data.data;
