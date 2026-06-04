@@ -162,7 +162,7 @@ let regionPaths = null;          // d3 selection of region boundary paths
 let regionIdFn = null;           // (feature) -> region id for the current boundary
 let highlightedRegionId = null;  // region the parent asked us to outline
 
-// Outline the highlighted region (orange) and reset the rest.
+// Outline the highlighted region in orange, reset the rest
 function applyRegionHighlight() {
   if (!regionPaths) return;
   regionPaths
@@ -349,6 +349,15 @@ async function init() {
 
     const isTract = params.get("boundary") === "tract";
     regionIdFn = (f) => isTract ? f.properties.GEOID : f.properties.ZCTA5CE20;
+
+    // Rewind rings so d3.geoPath fills each region interior, not its complement
+    // (otherwise the transparent fill covers the whole map and the top path eats every click)
+    tracts.features.forEach(f => {
+      const polys = f.geometry.type === "MultiPolygon"
+        ? f.geometry.coordinates
+        : [f.geometry.coordinates];
+      polys.forEach(poly => poly.forEach(ring => ring.reverse()));
+    });
 
     regionPaths = container.append("g") // region boundaries (clickable)
       .selectAll("path")
