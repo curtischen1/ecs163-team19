@@ -110,7 +110,8 @@
             */
 
             console.log("Selected month:", currentMonth);
-            updateMapSrc();
+            //updateMapSrc();
+            mapFrame.contentWindow.postMessage({ type: "SET_MONTH", month: currentMonth }, "*");
             updateMapSettings();
             renderBarChart(); // re-draw bars for the chosen month
         });

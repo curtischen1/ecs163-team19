@@ -49,55 +49,38 @@ svg {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 
 <script>
-//const DateFrom = '2024-03-01';
-//const DateTo = '2024-04-01';
 
-
+// SF open data app token
 let APP_TOKEN = localStorage.getItem("SF_APP_TOKEN");
-
 if (!APP_TOKEN) {
   APP_TOKEN = prompt("Paste the SF Open Data app token:");
   localStorage.setItem("SF_APP_TOKEN", APP_TOKEN);
 }
 
+// Map dimensions and d3 primitives
 const W = innerWidth;
 const H = innerHeight;
-
 const svg = d3.select("#map-svg")
   .attr("width", W)
   .attr("height", H);
-
 const projection = d3.geoMercator();
 const pathGen = d3.geoPath(projection);
 
+// Data source URLs and URL parameters
+// boundary param switches between zip code and census tract overlays
+// month param sets which month's EMS data to load on initial render
 const SF_URL =
   `https://data.sfgov.org/api/v3/views/gfpk-269f/query.geojson?$$app_token=${encodeURIComponent(APP_TOKEN)}`;
 
-//const TRACTS_URL = 'sf_tracts.json';
 const params = new URLSearchParams(window.location.search);
 const TRACTS_URL = params.get("boundary") === "tract" ? "sf_tracts.json" : "zip.json";
-
-// moved from lines 36-37 to use params object
-const monthParam = params.get("month") || "mar";
-const monthIndex = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
-const m = monthIndex[monthParam] || 3;
-const DateFrom = `2024-${String(m).padStart(2, "0")}-01`;
-const DateTo = m === 12 ? "2025-01-01" : `2024-${String(m + 1).padStart(2, "0")}-01`;
-
-const EMS_URL =
-  `https://data.sfgov.org/resource/nuek-vuh3.json?$where=received_dttm >= '${DateFrom}T00:00:00' AND received_dttm < '${DateTo}T00:00:00'&$limit=50000&$$app_token=${encodeURIComponent(APP_TOKEN)}`;
-
 const SAMPLE_SIZE = 750;
+const monthParam = params.get("month") || "mar";
 
-function sampleIncidents(arr, n) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a.slice(0, Math.min(n, a.length));
-}
-
+// Gaussian KDE grid
+// Assigns a weighted-average response time to each cell of a pixel grid using
+// a Gaussian kernel (sigma = 25px), output is passed to d3.contours() to
+// generate the heatmap filled contour paths
 function buildGrid(points, cell = 8) {
   const cols = Math.ceil(W / cell);
   const rows = Math.ceil(H / cell);
@@ -132,12 +115,16 @@ function buildGrid(points, cell = 8) {
   return { grid, cols, rows };
 }
 
+// Zoom and pan
+// Incident dots and fire station markers scale inversely with zoom so they stay
+// visually consistent, mouseenter focuses the iframe so trackpad scroll zooms
+// instead of scrolling the parent page
 const container = svg.append("g");
-
 const zoom = d3.zoom()
   .scaleExtent([0.5,8])
   .on("zoom", (event) => {
     container.attr("transform", event.transform);
+    currentK = event.transform.k;
     if (dotsLayer) {
       const k = event.transform.k;
       dotsLayer.selectAll("circle")
@@ -156,17 +143,26 @@ svg.call(zoom);
 svg.on("mouseenter", function() { window.focus();});
 document.addEventListener("wheel", function(e) {e.preventDefault();}, { passive: false });
 
+// Layer handles and shared state
+// Declared at module scope so the zoom handler and postMessage listener
+// can reference them before init() runs
 let stationsLayer = null;
 let dotsLayer = null;
+let heatmapLayer = null;
+let currentK = 1;
+const emsCache = new Map();
+let heatmapDataCache = null;
 
-/*window.addEventListener("message", (event) => {
-  if (event.data.type === "SET_FIRESTATIONS" && stationsLayer) {
-    stationsLayer.attr("display", event.data.visible ? null : "none");
-  }
-});*/
+// Receives commands from script.js in the parent frame:
+// SET_FIRESTATIONS show/hide fire station markers
+// SET_MONTH re-render heatmap and dots for a new month (no reload)
+// ZOOM_IN/OUT triggered by the +/− buttons in the parent UI
 window.addEventListener("message", function (event) {
     if (event.data.type === "SET_FIRESTATIONS" && stationsLayer) {
         stationsLayer.attr("display", event.data.visible ? null : "none");
+    }
+    if (event.data.type === "SET_MONTH") {
+        renderMonth(event.data.month).catch(console.error);
     }
     if (event.data.type === "ZOOM_IN") {
         zoom.scaleBy(svg.transition().duration(300), 1.5);
@@ -176,273 +172,228 @@ window.addEventListener("message", function (event) {
     }
 });
 
-async function init() {
-  try {
-    const [geo, tracts, ems, stations] = await Promise.all([
-      fetch(SF_URL).then(r => {
-        if (!r.ok) throw new Error("SF map data failed to load");
-        return r.json();
-      }),
+// Called on initial load and on SET_MONTH, does two fetches (both cached):
+// 1. heatmap_by_month.json precomputed centroid averages for the heatmap
+// 2. EMS API (limit 750) individual incidents for the dot layer
+async function renderMonth(monthKey) {
+    let rows;
 
-      fetch(TRACTS_URL).then(r => {
-        if (!r.ok) throw new Error("Zip boundary file failed to load");
-        return r.json();
-      }),
+    if (emsCache.has(monthKey)) {
+        rows = emsCache.get(monthKey);
+    } else {
+        const idx = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
+        const mNum = idx[monthKey] || 3;
+        const from = `2024-${String(mNum).padStart(2,"0")}-01`;
+        const to = mNum === 12 ? "2025-01-01" : `2024-${String(mNum+1).padStart(2,"0")}-01`;
+        const url = `https://data.sfgov.org/resource/nuek-vuh3.json?$where=received_dttm >= '${from}T00:00:00' AND received_dttm < '${to}T00:00:00'&$limit=750&$$app_token=${encodeURIComponent(APP_TOKEN)}`;
 
-      fetch(EMS_URL).then(r => {
-        if (!r.ok) throw new Error("EMS data failed to load");
-        return r.json();
-      }),
+        const ems = await fetch(url).then(r => {
+            if (!r.ok) throw new Error("EMS data failed to load");
+            return r.json();
+        });
 
-      fetch("firestations.json").then(r => {
-        if (!r.ok) throw new Error("Fire stations file failed to load");
-        return r.json();
-      })
-    ]);
+        rows = ems
+            .filter(d => d.received_dttm && d.on_scene_dttm && d.case_location?.coordinates)
+            .map(d => {
+                const [lng, lat] = d.case_location.coordinates;
+                return {
+                    lng, lat,
+                    t: (new Date(d.on_scene_dttm) - new Date(d.received_dttm)) / 1000,
+                    receivedDttm: d.received_dttm,
+                    callTypeGroup: d.call_type_group || "Unknown",
+                    stationArea: d.station_area || "—",
+                    address: d.address || "—",
+                    zipcode: d.zipcode_of_incident || "—"
+                };
+            })
+            .filter(d => d.t > 0 && d.t < 3600);
 
-    projection.fitExtent([[20, 20], [W - 20, H - 20]], geo);
-
-    const centroids = geo.features.map(f => {
-      const [x, y] = pathGen.centroid(f);
-
-      return {
-        x,
-        y,
-        tSum: 0,
-        count: 0
-      };
-    }).filter(d => isFinite(d.x));
-
-    const rows = ems
-      .filter(d =>
-        d.received_dttm &&
-        d.on_scene_dttm &&
-        d.case_location?.coordinates
-      )
-      .map(d => {
-        const [lng, lat] = d.case_location.coordinates;
-
-        return {
-          lng,
-          lat,
-          t: (new Date(d.on_scene_dttm) - new Date(d.received_dttm)) / 1000,
-          receivedDttm: d.received_dttm,
-          callTypeGroup: d.call_type_group || "Unknown",
-          stationArea: d.station_area || "—",
-          address: d.address || "—",
-          zipcode: d.zipcode_of_incident || "—"
-        };
-      })
-      .filter(d => d.t > 0 && d.t < 3600);
-
-    for (const d of rows) {
-      const [px, py] = projection([d.lng, d.lat]);
-
-      let best;
-      let bestDist = Infinity;
-
-      for (const c of centroids) {
-        const dx = px - c.x;
-        const dy = py - c.y;
-
-        const dist = dx * dx + dy * dy;
-
-        if (dist < bestDist) {
-          bestDist = dist;
-          best = c;
-        }
-      }
-
-      if (best) {
-        best.tSum += d.t;
-        best.count++;
-      }
+        emsCache.set(monthKey, rows);
     }
 
-    const points = centroids
-      .filter(d => d.count)
-      .map(d => ({
-        x: d.x,
-        y: d.y,
-        t: d.tSum / d.count
-      }));
-
-    const sampledRows = sampleIncidents(rows, SAMPLE_SIZE);
-
-    if (points.length === 0) {
-      throw new Error("No EMS points were found for this date range.");
+    // Load precomputed heatmap data (cached after first fetch)
+    if (!heatmapDataCache) {
+        heatmapDataCache = await fetch("heatmap_by_month.json").then(r => r.json());
     }
+    const monthPoints = heatmapDataCache[monthKey];
+    if (!monthPoints || monthPoints.length === 0) throw new Error("No heatmap data for this month.");
 
+    // Project lat/lng to screen pixels
+    const points = monthPoints.map(d => {
+        const [x, y] = projection([d.lng, d.lat]);
+        return { x, y, t: d.t };
+    });
+
+    const sampledRows = rows;
     const { grid, cols, rows: gridRows } = buildGrid(points);
-
     const min = d3.min(points, d => d.t);
     const max = d3.max(points, d => d.t);
 
     const color = d3.scaleSequential()
-      .domain([min, max])
-      .interpolator(t => d3.interpolateRgbBasis([
-        "#f3e8ff",
-        "#c084fc",
-        "#7e22ce",
-        "#4c1d95",
-        "#2e1065"
-      ])(t));
+        .domain([min, max])
+        .interpolator(t => d3.interpolateRgbBasis(["#f3e8ff","#c084fc","#7e22ce","#4c1d95","#2e1065"])(t));
 
-    const contours = d3.contours()
-      .size([cols, gridRows])
-      .thresholds(20)(
-        grid
-      );
+    const contours = d3.contours().size([cols, gridRows]).thresholds(20)(grid);
+    const contourPath = d3.geoPath(d3.geoIdentity().scale(8));
 
-    const contourPath =
-      d3.geoPath(
-        d3.geoIdentity().scale(8)
-      );
+    // Clear and redraw heatmap
+    heatmapLayer.selectAll("*").remove();
+    heatmapLayer.selectAll("path")
+        .data(contours)
+        .enter()
+        .append("path")
+        .attr("d", contourPath)
+        .attr("fill", d => color(d.value))
+        .attr("stroke", d => color(d.value))
+        .attr("stroke-width", 1.3)
+        .attr("opacity", 1);
 
-    /*
-    svg.append("defs")
-      .append("clipPath")
-      .attr("id", "clip")
-      .selectAll("path")
-      .data(geo.features)
-      .enter()
-      .append("path")
-      .attr("d", pathGen);
-    */
-
-    container.append("g") // changed from svg to container to fix zooming
-      //.attr("clip-path", "url(#clip)")
-      .selectAll("path")
-      .data(contours)
-      .enter()
-      .append("path")
-      .attr("d", contourPath)
-      .attr("fill", d => color(d.value))
-      .attr("stroke", d => color(d.value))
-      .attr("stroke-width", 1.3)
-      .attr("opacity", 1);
-
-    const sfOutline = geo.features.map(f => pathGen(f)).join(" ");
-    container.append("path")
-        .attr("fill", "#b8d4e8")
-        .attr("fill-rule", "evenodd")
-        .attr("d", `M -9999 -9999 H 99999 V 99999 H -9999 Z ${sfOutline}`);
-
-    container.append("g") // changed from svg to container to fix zooming
-      .selectAll("path")
-      .data(tracts.features)
-      .enter()
-      .append("path")
-      .attr("d", pathGen)
-      .attr("fill", "none")
-      .attr("stroke", "#14071f")
-      .attr("stroke-width", 0.8);
-
-    dotsLayer = container.append("g").attr("id", "dots-layer");
-
+    // Clear and redraw dots
     const tooltip = d3.select("#tooltip");
-
+    dotsLayer.selectAll("*").remove();
     dotsLayer.selectAll("circle")
-      .data(sampledRows)
-      .enter()
-      .append("circle")
-      .attr("cx", d => projection([d.lng, d.lat])[0])
-      .attr("cy", d => projection([d.lng, d.lat])[1])
-      .attr("r", 3)
-      .attr("fill", "#ffffff")
-      .attr("fill-opacity", 0.75)
-      .attr("stroke", "#233962")
-      .attr("stroke-width", 0.5)
-      .style("cursor", "pointer")
-      .on("mouseover", function (event, d) {
-        const date = new Date(d.receivedDttm);
-        const dateStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-        const timeStr = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-        const mins = Math.floor(d.t / 60);
-        const secs = Math.round(d.t % 60);
-        tooltip
-          .style("display", "block")
-          .style("left", (event.clientX + 14) + "px")
-          .style("top", (event.clientY - 10) + "px")
-          .html(
-            `<strong>${dateStr} ${timeStr}</strong><br>` +
-            `Response: ${mins}m ${secs}s<br>` +
-            `Type: ${d.callTypeGroup}<br>` +
-            `Station: ${d.stationArea}<br>` +
-            `${d.address}, ${d.zipcode}`
-          );
-      })
-      .on("mousemove", function (event) {
-        tooltip
-          .style("left", (event.clientX + 14) + "px")
-          .style("top", (event.clientY - 10) + "px");
-      })
-      .on("mouseout", function () {
-        tooltip.style("display", "none");
-      })
-      .on("click", function (event, d) {
-        const date = new Date(d.receivedDttm);
-        const dateStr = date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-        const timeStr = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-        const mins = Math.floor(d.t / 60);
-        const secs = Math.round(d.t % 60);
-        window.parent.postMessage({
-          type: "INCIDENT_CLICK",
-          data: {
-            date: `${dateStr} at ${timeStr}`,
-            responseTime: `${mins} min ${secs} sec`,
-            callTypeGroup: d.callTypeGroup,
-            stationArea: d.stationArea,
-            address: d.address,
-            zipcode: d.zipcode
-          }
-        }, "*");
-      });
+        .data(sampledRows)
+        .enter()
+        .append("circle")
+        .attr("cx", d => projection([d.lng, d.lat])[0])
+        .attr("cy", d => projection([d.lng, d.lat])[1])
+        .attr("r", 3 / currentK)
+        .attr("fill", "#ffffff")
+        .attr("fill-opacity", 0.75)
+        .attr("stroke", "#233962")
+        .attr("stroke-width", 0.5 / currentK)
+        .style("cursor", "pointer")
+        .on("mouseover", function (event, d) {
+            const date = new Date(d.receivedDttm);
+            const dateStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+            const timeStr = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+            const mins = Math.floor(d.t / 60);
+            const secs = Math.round(d.t % 60);
+            tooltip.style("display", "block")
+                .style("left", (event.clientX + 14) + "px")
+                .style("top", (event.clientY - 10) + "px")
+                .html(`<strong>${dateStr} ${timeStr}</strong><br>Response: ${mins}m ${secs}s<br>Type: ${d.callTypeGroup}<br>Station: ${d.stationArea}<br>${d.address}, ${d.zipcode}`);
+        })
+        .on("mousemove", function (event) {
+            tooltip.style("left", (event.clientX + 14) + "px")
+                   .style("top", (event.clientY - 10) + "px");
+        })
+        .on("mouseout", function () { tooltip.style("display", "none"); })
+        .on("click", function (event, d) {
+            const date = new Date(d.receivedDttm);
+            const dateStr = date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+            const timeStr = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+            const mins = Math.floor(d.t / 60);
+            const secs = Math.round(d.t % 60);
+            window.parent.postMessage({
+                type: "INCIDENT_CLICK",
+                data: {
+                    date: `${dateStr} at ${timeStr}`,
+                    responseTime: `${mins} min ${secs} sec`,
+                    callTypeGroup: d.callTypeGroup,
+                    stationArea: d.stationArea,
+                    address: d.address,
+                    zipcode: d.zipcode
+                }
+            }, "*");
+            stationsLayer.selectAll("circle")
+                .attr("fill", "#ff6b00")
+                .attr("stroke", "#ffffff")
+                .attr("stroke-width", 1.5 / currentK);
+            stationsLayer.selectAll("circle")
+                .filter(s => parseInt(s.station_number) === parseInt(d.stationArea))
+                .attr("fill", "#facc15")
+                .attr("stroke", "#ff6b00")
+                .attr("stroke-width", 3 / currentK);
+        });
+}
 
-    stationsLayer = container.append("g").attr("display", "none"); // changed from svg to container to fix zooming
+// Runs once on page load, fetches static data in parallel (SF boundary GeoJSON,
+// tract/zip boundary lines, fire stations), sets up the projection and SVG layer
+// stack, then calls renderMonth() for the initial month
+async function init() {
+    try {
+        const [geo, tracts, stations] = await Promise.all([
+            fetch(SF_URL).then(r => {
+                if (!r.ok) throw new Error("SF map data failed to load");
+                return r.json();
+            }),
+            fetch(TRACTS_URL).then(r => {
+                if (!r.ok) throw new Error("Zip boundary file failed to load");
+                return r.json();
+            }),
+            fetch("firestations.json").then(r => {
+                if (!r.ok) throw new Error("Fire stations file failed to load");
+                return r.json();
+            })
+        ]);
 
-    stationsLayer.selectAll("circle")
-      .data(stations)
-      .enter()
-      .append("circle")
-      .attr("cx", d => projection([d.lng, d.lat])[0])
-      .attr("cy", d => projection([d.lng, d.lat])[1])
-      .attr("r", 6)
-      .attr("fill", "#ff6b00")
-      .attr("stroke", "#ffffff")
-      .attr("stroke-width", 1.5)
-      //.append("title")
-      //.text(d => `Station ${parseInt(d.station_number)}`);
-      .on("mouseover", function (event, d) {
-        tooltip
-          .style("display", "block")
-          .style("left", (event.clientX + 14) + "px")
-          .style("top", (event.clientY - 10) + "px")
-          .html(`<strong>Station ${parseInt(d.station_number)}</strong>`);
-      })
-      .on("mousemove", function (event) {
-        tooltip
-          .style("left", (event.clientX + 14) + "px")
-          .style("top", (event.clientY - 10) + "px");
-      })
-      .on("mouseout", function () {
-        tooltip.style("display", "none");
-      })
+        projection.fitExtent([[20, 20], [W - 20, H - 20]], geo);
 
-    window.parent.postMessage({ type: "MAP_READY" }, "*");
+        // Heatmap layer (must be below ocean mask)
+        heatmapLayer = container.append("g");
 
-  } catch (error) {
-    console.error(error);
+        // Ocean mask
+        const sfOutline = geo.features.map(f => pathGen(f)).join(" ");
+        container.append("path")
+            .attr("fill", "#b8d4e8")
+            .attr("fill-rule", "evenodd")
+            .attr("d", `M -9999 -9999 H 99999 V 99999 H -9999 Z ${sfOutline}`);
 
-    svg.append("text")
-      .attr("x", W / 2)
-      .attr("y", H / 2)
-      .attr("text-anchor", "middle")
-      .attr("fill", "#233962")
-      .attr("font-size", "20px")
-      .attr("font-family", "Arial, sans-serif")
-      .text("Map data could not load. Check token, Live Server, and file names.");
-  }
+        // Boundaries
+        container.append("g")
+            .selectAll("path")
+            .data(tracts.features)
+            .enter()
+            .append("path")
+            .attr("d", pathGen)
+            .attr("fill", "none")
+            .attr("stroke", "#14071f")
+            .attr("stroke-width", 0.8);
+
+        // Dots layer
+        dotsLayer = container.append("g").attr("id", "dots-layer");
+
+        // Stations layer
+        stationsLayer = container.append("g").attr("display", "none");
+        stationsLayer.selectAll("circle")
+            .data(stations)
+            .enter()
+            .append("circle")
+            .attr("cx", d => projection([d.lng, d.lat])[0])
+            .attr("cy", d => projection([d.lng, d.lat])[1])
+            .attr("r", 5)
+            .attr("fill", "#ff6b00")
+            .attr("stroke", "#ffffff")
+            .attr("stroke-width", 1.5)
+            .on("mouseover", function (event, d) {
+                d3.select("#tooltip")
+                    .style("display", "block")
+                    .style("left", (event.clientX + 14) + "px")
+                    .style("top", (event.clientY - 10) + "px")
+                    .html(`<strong>Station ${parseInt(d.station_number)}</strong>`);
+            })
+            .on("mousemove", function (event) {
+                d3.select("#tooltip")
+                    .style("left", (event.clientX + 14) + "px")
+                    .style("top", (event.clientY - 10) + "px");
+            })
+            .on("mouseout", function () { d3.select("#tooltip").style("display", "none"); });
+
+        await renderMonth(monthParam);
+
+        window.parent.postMessage({ type: "MAP_READY" }, "*");
+
+    } catch (error) {
+        console.error(error);
+        svg.append("text")
+            .attr("x", W / 2).attr("y", H / 2)
+            .attr("text-anchor", "middle")
+            .attr("fill", "#233962")
+            .attr("font-size", "20px")
+            .attr("font-family", "Arial, sans-serif")
+            .text("Map data could not load. Check token, Live Server, and file names.");
+    }
 }
 
 addEventListener("resize", () => location.reload());
