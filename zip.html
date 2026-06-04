@@ -102,18 +102,12 @@ const zoom = d3.zoom()
   .scaleExtent([0.5,8])
   .on("zoom", (event) => {
     container.attr("transform", event.transform);
-    svg.select("#clip").attr("transform", event.transform);
   });
 
 svg.call(zoom);
 
 let stationsLayer = null;
 
-/*window.addEventListener("message", (event) => {
-  if (event.data.type === "SET_FIRESTATIONS" && stationsLayer) {
-    stationsLayer.attr("display", event.data.visible ? null : "none");
-  }
-});*/
 window.addEventListener("message", function (event) {
     if (event.data.type === "SET_FIRESTATIONS" && stationsLayer) {
         stationsLayer.attr("display", event.data.visible ? null : "none");
@@ -128,7 +122,7 @@ window.addEventListener("message", function (event) {
 
 async function init() {
   try {
-    const [geo, tracts, ems, stations] = await Promise.all([
+    const [geo, tracts, ems, stations, sfUnion] = await Promise.all([
       fetch(SF_URL).then(r => {
         if (!r.ok) throw new Error("SF map data failed to load");
         return r.json();
@@ -146,6 +140,11 @@ async function init() {
 
       fetch("firestations.json").then(r => {
         if (!r.ok) throw new Error("Fire stations file failed to load");
+        return r.json();
+      }),
+
+      fetch("zip_borders.json").then(r => {
+        if (!r.ok) throw new Error("Zip borders file failed to load");
         return r.json();
       })
     ]);
@@ -244,17 +243,15 @@ async function init() {
         d3.geoIdentity().scale(8)
       );
 
-    svg.append("defs")
-      .append("clipPath")
-      .attr("id", "clip")
-      .selectAll("path")
-      .data(geo.features)
-      .enter()
-      .append("path")
-      .attr("d", pathGen);
+    // Build a clipPath from the unioned SF boundary so contours only show inside SF
+    const defs = svg.append("defs");
+    const clipPath = defs.append("clipPath").attr("id", "sf-clip");
+    const sfUnionPath = pathGen(sfUnion);
+    if (sfUnionPath) clipPath.append("path").attr("d", sfUnionPath);
 
-    container.append("g") // changed from svg to container to fix zooming
-      .attr("clip-path", "url(#clip)")
+    // Draw contours clipped to SF boundary
+    container.append("g")
+      .attr("clip-path", "url(#sf-clip)")
       .selectAll("path")
       .data(contours)
       .enter()
@@ -265,7 +262,16 @@ async function init() {
       .attr("stroke-width", 1.3)
       .attr("opacity", 1);
 
-    container.append("g") // changed from svg to container to fix zooming
+    // Cover everything outside SF with the background color
+    const bigRect = `M0,0L0,${H}L${W},${H}L${W},0Z`;
+    container.append("path")
+      .attr("d", bigRect + " " + sfUnionPath)
+      .attr("fill", "#b8d4e8")
+      .attr("fill-rule", "evenodd")
+      .attr("stroke", "none");
+
+    // Draw zip border lines on top
+    container.append("g")
       .selectAll("path")
       .data(tracts.features)
       .enter()
@@ -275,7 +281,7 @@ async function init() {
       .attr("stroke", "#14071f")
       .attr("stroke-width", 0.8);
 
-    stationsLayer = container.append("g").attr("display", "none"); // changed from svg to container to fix zooming
+    stationsLayer = container.append("g").attr("display", "none");
 
     stationsLayer.selectAll("circle")
       .data(stations)

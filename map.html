@@ -313,7 +313,7 @@ async function renderMonth(monthKey) {
 // stack, then calls renderMonth() for the initial month
 async function init() {
     try {
-        const [geo, tracts, stations] = await Promise.all([
+        const [geo, tracts, stations, sfUnion] = await Promise.all([
             fetch(SF_URL).then(r => {
                 if (!r.ok) throw new Error("SF map data failed to load");
                 return r.json();
@@ -325,6 +325,10 @@ async function init() {
             fetch("firestations.json").then(r => {
                 if (!r.ok) throw new Error("Fire stations file failed to load");
                 return r.json();
+            }),
+            fetch(params.get("boundary") === "tract" ? "sf_tracts_border.json" : "zip_borders.json").then(r => {
+                if (!r.ok) throw new Error("SF border file failed to load");
+                return r.json();
             })
         ]);
 
@@ -334,11 +338,11 @@ async function init() {
         heatmapLayer = container.append("g");
 
         // Ocean mask
-        const sfOutline = geo.features.map(f => pathGen(f)).join(" ");
+        const sfUnionPath = pathGen(sfUnion);
         container.append("path")
             .attr("fill", "#b8d4e8")
             .attr("fill-rule", "evenodd")
-            .attr("d", `M -9999 -9999 H 99999 V 99999 H -9999 Z ${sfOutline}`);
+            .attr("d", `M -9999 -9999 H 99999 V 99999 H -9999 Z ${sfUnionPath}`);
 
         // Boundaries
         container.append("g")
