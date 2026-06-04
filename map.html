@@ -50,12 +50,10 @@ svg {
 
 <script>
 
-// SF open data app token
-let APP_TOKEN = localStorage.getItem("SF_APP_TOKEN");
-if (!APP_TOKEN) {
-  APP_TOKEN = prompt("Paste the SF Open Data app token:");
-  localStorage.setItem("SF_APP_TOKEN", APP_TOKEN);
-}
+// Heatmap contours still use the local monthly summary file, but the clickable
+// incident dots now come from the real SF Open Data EMS rows for the selected
+// month. That matches the older branch behavior: dots are actual incidents,
+// shuffled across the whole month, and the slider controls how many are visible.
 
 // Map dimensions and d3 primitives
 const W = innerWidth;
@@ -66,24 +64,96 @@ const svg = d3.select("#map-svg")
 const projection = d3.geoMercator();
 const pathGen = d3.geoPath(projection);
 
-// Data source URLs and URL parameters
+// Data source URL parameters
 // boundary param switches between zip code and census tract overlays
 // month param sets which month's EMS data to load on initial render
-const SF_URL =
-  `https://data.sfgov.org/api/v3/views/gfpk-269f/query.geojson?$$app_token=${encodeURIComponent(APP_TOKEN)}`;
-
 const params = new URLSearchParams(window.location.search);
+const hideBoundaries = params.get("hideBoundaries") === "1";
 const TRACTS_URL = params.get("boundary") === "tract" ? "sf_tracts.json" : "zip.json";
-const SAMPLE_SIZE = 750;
+let currentSampleSize = 750;
 const monthParam = params.get("month") || "mar";
 
-function sampleIncidents(arr, n) {
+const MONTH_INDEX = {
+    jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+    jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12
+};
+
+function monthSeed(monthKey) {
+    return Array.from(monthKey).reduce((sum, ch) => sum + ch.charCodeAt(0), 2024);
+}
+
+function mulberry32(seed) {
+    return function () {
+        seed |= 0;
+        seed = seed + 0x6D2B79F5 | 0;
+        let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+}
+
+function seededShuffle(arr, seed) {
+    const rng = mulberry32(seed);
     const a = arr.slice();
     for (let i = a.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const j = Math.floor(rng() * (i + 1));
         [a[i], a[j]] = [a[j], a[i]];
     }
-    return a.slice(0, Math.min(n, a.length));
+    return a;
+}
+
+function monthDateRange(monthKey) {
+    const m = MONTH_INDEX[monthKey] || 3;
+    const from = `2024-${String(m).padStart(2, "0")}-01`;
+    const to = m === 12 ? "2025-01-01" : `2024-${String(m + 1).padStart(2, "0")}-01`;
+    return { from, to };
+}
+
+let APP_TOKEN = localStorage.getItem("SF_APP_TOKEN") || "";
+
+function buildEMSUrl(monthKey) {
+    const { from, to } = monthDateRange(monthKey);
+    const params = new URLSearchParams();
+    params.set("$select", "received_dttm,on_scene_dttm,case_location,call_type_group,station_area,address,zipcode_of_incident");
+    params.set("$where", `received_dttm >= '${from}T00:00:00' AND received_dttm < '${to}T00:00:00' AND on_scene_dttm IS NOT NULL AND case_location IS NOT NULL`);
+    params.set("$limit", "50000");
+    if (APP_TOKEN) params.set("$$app_token", APP_TOKEN);
+    return `https://data.sfgov.org/resource/nuek-vuh3.json?${params.toString()}`;
+}
+
+async function fetchEMSRows(monthKey, retryWithToken = true) {
+    let response = await fetch(buildEMSUrl(monthKey));
+
+    if (!response.ok && retryWithToken && !APP_TOKEN) {
+        APP_TOKEN = prompt("Paste the SF Open Data app token:") || "";
+        if (APP_TOKEN) localStorage.setItem("SF_APP_TOKEN", APP_TOKEN);
+        response = await fetch(buildEMSUrl(monthKey));
+    }
+
+    if (!response.ok) {
+        throw new Error("EMS incident data failed to load");
+    }
+
+    const rawRows = await response.json();
+    let idCounter = 0;
+
+    return rawRows
+        .filter(d => d.received_dttm && d.on_scene_dttm && d.case_location?.coordinates)
+        .map(d => {
+            const [lng, lat] = d.case_location.coordinates;
+            return {
+                incidentId: `${monthKey}-${idCounter++}`,
+                lng,
+                lat,
+                t: (new Date(d.on_scene_dttm) - new Date(d.received_dttm)) / 1000,
+                receivedDttm: d.received_dttm,
+                callTypeGroup: d.call_type_group || "Unknown",
+                stationArea: d.station_area || "—",
+                address: d.address || "—",
+                zipcode: d.zipcode_of_incident || "—"
+            };
+        })
+        .filter(d => d.t > 0 && d.t < 3600 && isFinite(d.lng) && isFinite(d.lat));
 }
 
 // Gaussian KDE grid
@@ -136,15 +206,16 @@ const zoom = d3.zoom()
     currentK = event.transform.k;
     if (dotsLayer) {
       const k = event.transform.k;
-      dotsLayer.selectAll("circle")
-        .attr("r", 3 / k)
-        .attr("stroke-width", 0.5 / k);
+      updateIncidentDotStyles();
     }
     if (stationsLayer) {
       const k = event.transform.k;
       stationsLayer.selectAll("circle")
         .attr("r", 6 / k)
         .attr("stroke-width", 1.5 / k);
+    }
+    if (regionPaths) {
+      applyRegionHighlight();
     }
   });
 
@@ -158,20 +229,75 @@ document.addEventListener("wheel", function(e) {e.preventDefault();}, { passive:
 let stationsLayer = null;
 let dotsLayer = null;
 let heatmapLayer = null;
+let boundariesLayer = null;
+let regionPaths = null;
+let regionIdFn = null;
+let highlightedRegionId = null;
 let currentK = 1;
+let selectedIncidentId = null;
+let allStations = [];
 const emsCache = new Map();
 let heatmapDataCache = null;
+let currentMonthRows = [];
+let currentMonthKey = monthParam;
+
+function distanceKm(lat1, lng1, lat2, lng2) {
+    const R = 6371;
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function nearestStationNumber(lat, lng) {
+    if (!allStations.length) return "—";
+    let nearest = allStations[0];
+    let nearestDist = Infinity;
+    for (const station of allStations) {
+        const d = distanceKm(lat, lng, station.lat, station.lng);
+        if (d < nearestDist) {
+            nearestDist = d;
+            nearest = station;
+        }
+    }
+    return nearest.station_number;
+}
+
+function applyRegionHighlight() {
+    if (!regionPaths || !regionIdFn) return;
+
+    regionPaths
+        .attr("stroke", d => regionIdFn(d) === highlightedRegionId ? "#ff8a00" : "#14071f")
+        .attr("stroke-width", d => regionIdFn(d) === highlightedRegionId ? 2.5 / currentK : 0.8 / currentK)
+        .filter(d => regionIdFn(d) === highlightedRegionId)
+        .raise();
+}
 
 // Receives commands from script.js in the parent frame:
 // SET_FIRESTATIONS show/hide fire station markers
 // SET_MONTH re-render heatmap and dots for a new month (no reload)
+// SET_SAMPLE_SIZE redraws the visible incident dots without changing the heatmap
 // ZOOM_IN/OUT triggered by the +/− buttons in the parent UI
 window.addEventListener("message", function (event) {
     if (event.data.type === "SET_FIRESTATIONS" && stationsLayer) {
         stationsLayer.attr("display", event.data.visible ? null : "none");
     }
     if (event.data.type === "SET_MONTH") {
-        renderMonth(event.data.month).catch(console.error);
+        currentMonthKey = event.data.month || currentMonthKey;
+        renderMonth(currentMonthKey).catch(console.error);
+    }
+    if (event.data.type === "SET_SAMPLE_SIZE") {
+        currentSampleSize = Math.max(0, Math.min(10000, parseInt(event.data.size, 10) || 0));
+        renderDots();
+    }
+    if (event.data.type === "SET_BOUNDARIES" && boundariesLayer) {
+        boundariesLayer.attr("display", event.data.visible ? null : "none");
+    }
+    if (event.data.type === "SET_REGION_HIGHLIGHT") {
+        highlightedRegionId = event.data.id == null ? null : String(event.data.id);
+        applyRegionHighlight();
     }
     if (event.data.type === "ZOOM_IN") {
         zoom.scaleBy(svg.transition().duration(300), 1.5);
@@ -181,59 +307,155 @@ window.addEventListener("message", function (event) {
     }
 });
 
-// Called on initial load and on SET_MONTH, does two fetches (both cached):
-// 1. heatmap_by_month.json precomputed centroid averages for the heatmap
-// 2. EMS API (limit 750) individual incidents for the dot layer
-async function renderMonth(monthKey) {
-    let rows;
+// draw the incident dots for the currently selected month
+function renderDots() {
+    if (!dotsLayer || !currentMonthRows) return;
 
-    if (emsCache.has(monthKey)) {
-        rows = emsCache.get(monthKey);
-    } else {
-        const idx = { jan:1, feb:2, mar:3, apr:4, may:5, jun:6, jul:7, aug:8, sep:9, oct:10, nov:11, dec:12 };
-        const mNum = idx[monthKey] || 3;
-        const from = `2024-${String(mNum).padStart(2,"0")}-01`;
-        const to = mNum === 12 ? "2025-01-01" : `2024-${String(mNum+1).padStart(2,"0")}-01`;
-        const url = `https://data.sfgov.org/resource/nuek-vuh3.json?$where=received_dttm >= '${from}T00:00:00' AND received_dttm < '${to}T00:00:00'&$limit=750&$$app_token=${encodeURIComponent(APP_TOKEN)}`;
+    // clear selected incident whenever the dots are redrawn
+    selectedIncidentId = null;
+    const tooltip = d3.select("#tooltip");
+    // show the num of incidents by slider
+    const visibleRows = currentMonthRows.slice(0, Math.min(currentSampleSize, currentMonthRows.length));
 
-        const ems = await fetch(url).then(r => {
-            if (!r.ok) throw new Error("EMS data failed to load");
-            return r.json();
+    // remove old dots
+    dotsLayer.selectAll("*").remove();
+    dotsLayer.selectAll("circle")
+        .data(visibleRows, d => d.incidentId)
+        .enter()
+        .append("circle")
+
+        // position dot w/ longitude/latitude
+        .attr("cx", d => projection([d.lng, d.lat])[0])
+        .attr("cy", d => projection([d.lng, d.lat])[1])
+
+        // divide by currentK so dots stay visually consistent while zooming
+        .attr("r", 3 / currentK)
+        .attr("fill", "#ffffff")
+        .attr("fill-opacity", 0.75)
+        .attr("stroke", "#233962")
+        .attr("stroke-width", 0.5 / currentK)
+        .style("cursor", "pointer")
+
+        // make the dot larger on hover
+        .on("mouseover", function (event, d) {
+            if (d.incidentId !== selectedIncidentId) {
+                d3.select(this)
+                    .attr("r", 5 / currentK)
+                    .attr("stroke", "#8a0fcb");
+            }
+
+            // format the incident date, time, and response time
+            const date = new Date(d.receivedDttm);
+            const dateStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+            const timeStr = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+            const mins = Math.floor(d.t / 60);
+            const secs = Math.round(d.t % 60);
+            tooltip.style("display", "block")
+                .style("left", (event.clientX + 14) + "px")
+                .style("top", (event.clientY - 10) + "px")
+                .html(`<strong>${dateStr} ${timeStr}</strong><br>Response: ${mins}m ${secs}s<br>Type: ${d.callTypeGroup}<br>Station: ${d.stationArea}<br>${d.address}, ${d.zipcode}`);
+        })
+
+        // keep tooltip nxt to the mouse while moving
+        .on("mousemove", function (event) {
+            tooltip.style("left", (event.clientX + 14) + "px")
+                   .style("top", (event.clientY - 10) + "px");
+        })
+        // ret dot to normal when the mouse leaves unless selected
+        .on("mouseout", function (event, d) {
+            if (d.incidentId !== selectedIncidentId) {
+                d3.select(this)
+                    .attr("r", 3 / currentK)
+                    .attr("stroke", "#233962");
+            }
+            tooltip.style("display", "none");
+        })
+
+        // select incident dot and send its details to the parent page
+        .on("click", function (event, d) {
+            selectedIncidentId = d.incidentId;
+            updateIncidentDotStyles();
+
+            const date = new Date(d.receivedDttm);
+            const dateStr = date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+            const timeStr = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+            const mins = Math.floor(d.t / 60);
+            const secs = Math.round(d.t % 60);
+            window.parent.postMessage({
+                type: "INCIDENT_CLICK",
+                data: {
+                    date: `${dateStr} at ${timeStr}`,
+                    responseTime: `${mins} min ${secs} sec`,
+                    callTypeGroup: d.callTypeGroup,
+                    stationArea: d.stationArea,
+                    address: d.address,
+                    zipcode: d.zipcode
+                }
+            }, "*");
+
+            // reset fire stations to default
+            stationsLayer.selectAll("circle")
+                .attr("fill", "#ff6b00")
+                .attr("stroke", "#ffffff")
+                .attr("stroke-width", 1.5 / currentK);
+
+            // highlight responding fire station
+            stationsLayer.selectAll("circle")
+                .filter(s => parseInt(s.station_number) === parseInt(d.stationArea))
+                .attr("fill", "#00b7ff")
+                .attr("stroke", "#ff6b00")
+                .attr("stroke-width", 3 / currentK);
         });
+}
 
-        rows = ems
-            .filter(d => d.received_dttm && d.on_scene_dttm && d.case_location?.coordinates)
-            .map(d => {
-                const [lng, lat] = d.case_location.coordinates;
-                return {
-                    lng, lat,
-                    t: (new Date(d.on_scene_dttm) - new Date(d.received_dttm)) / 1000,
-                    receivedDttm: d.received_dttm,
-                    callTypeGroup: d.call_type_group || "Unknown",
-                    stationArea: d.station_area || "—",
-                    address: d.address || "—",
-                    zipcode: d.zipcode_of_incident || "—"
-                };
-            })
-            .filter(d => d.t > 0 && d.t < 3600);
+// update incident dots when selected
+function updateIncidentDotStyles() {
+    if (!dotsLayer) return;
 
-        emsCache.set(monthKey, rows);
-    }
+    dotsLayer.selectAll("circle")
+        // selected dot = larger and yellow
+        .attr("r", d => d.incidentId === selectedIncidentId ? 6 / currentK : 3 / currentK)
+        .attr("fill", d => d.incidentId === selectedIncidentId ? "#facc15" : "#ffffff")
+        .attr("fill-opacity", d => d.incidentId === selectedIncidentId ? 1 : 0.75)
+        .attr("stroke", d => d.incidentId === selectedIncidentId ? "#233962" : "#233962")
+        .attr("stroke-width", d => d.incidentId === selectedIncidentId ? 1.4 / currentK : 0.5 / currentK);
 
-    // Load precomputed heatmap data (cached after first fetch)
+    // move the selected dot to the front so can see
+    dotsLayer.selectAll("circle")
+        .filter(d => d.incidentId === selectedIncidentId)
+        .raise();
+}
+
+// Called on initial load and on SET_MONTH. Uses local heatmap_by_month.json
+// for the heatmap, and live SF Open Data rows for the clickable incident dots.
+async function renderMonth(monthKey) {
     if (!heatmapDataCache) {
         heatmapDataCache = await fetch("heatmap_by_month.json").then(r => r.json());
     }
+
     const monthPoints = heatmapDataCache[monthKey];
     if (!monthPoints || monthPoints.length === 0) throw new Error("No heatmap data for this month.");
+    selectedIncidentId = null;
 
-    // Project lat/lng to screen pixels
+    let rows;
+    if (emsCache.has(monthKey)) {
+        rows = emsCache.get(monthKey);
+    } else {
+        // Use real incident rows for the dot layer instead of generating dots
+        // around the heatmap summary points. This prevents artificial clumps.
+        rows = await fetchEMSRows(monthKey);
+        rows = seededShuffle(rows, monthSeed(monthKey));
+        emsCache.set(monthKey, rows);
+    }
+
+    // Project local heatmap summary lat/lng to screen pixels
     const points = monthPoints.map(d => {
         const [x, y] = projection([d.lng, d.lat]);
         return { x, y, t: d.t };
     });
 
-    const sampledRows = sampleIncidents(rows, SAMPLE_SIZE);
+    currentMonthKey = monthKey;
+    currentMonthRows = rows;
     const { grid, cols, rows: gridRows } = buildGrid(points);
     const min = d3.min(points, d => d.t);
     const max = d3.max(points, d => d.t);
@@ -257,64 +479,9 @@ async function renderMonth(monthKey) {
         .attr("stroke-width", 1.3)
         .attr("opacity", 1);
 
-    // Clear and redraw dots
-    const tooltip = d3.select("#tooltip");
-    dotsLayer.selectAll("*").remove();
-    dotsLayer.selectAll("circle")
-        .data(sampledRows)
-        .enter()
-        .append("circle")
-        .attr("cx", d => projection([d.lng, d.lat])[0])
-        .attr("cy", d => projection([d.lng, d.lat])[1])
-        .attr("r", 3 / currentK)
-        .attr("fill", "#ffffff")
-        .attr("fill-opacity", 0.75)
-        .attr("stroke", "#233962")
-        .attr("stroke-width", 0.5 / currentK)
-        .style("cursor", "pointer")
-        .on("mouseover", function (event, d) {
-            const date = new Date(d.receivedDttm);
-            const dateStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-            const timeStr = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-            const mins = Math.floor(d.t / 60);
-            const secs = Math.round(d.t % 60);
-            tooltip.style("display", "block")
-                .style("left", (event.clientX + 14) + "px")
-                .style("top", (event.clientY - 10) + "px")
-                .html(`<strong>${dateStr} ${timeStr}</strong><br>Response: ${mins}m ${secs}s<br>Type: ${d.callTypeGroup}<br>Station: ${d.stationArea}<br>${d.address}, ${d.zipcode}`);
-        })
-        .on("mousemove", function (event) {
-            tooltip.style("left", (event.clientX + 14) + "px")
-                   .style("top", (event.clientY - 10) + "px");
-        })
-        .on("mouseout", function () { tooltip.style("display", "none"); })
-        .on("click", function (event, d) {
-            const date = new Date(d.receivedDttm);
-            const dateStr = date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-            const timeStr = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-            const mins = Math.floor(d.t / 60);
-            const secs = Math.round(d.t % 60);
-            window.parent.postMessage({
-                type: "INCIDENT_CLICK",
-                data: {
-                    date: `${dateStr} at ${timeStr}`,
-                    responseTime: `${mins} min ${secs} sec`,
-                    callTypeGroup: d.callTypeGroup,
-                    stationArea: d.stationArea,
-                    address: d.address,
-                    zipcode: d.zipcode
-                }
-            }, "*");
-            stationsLayer.selectAll("circle")
-                .attr("fill", "#ff6b00")
-                .attr("stroke", "#ffffff")
-                .attr("stroke-width", 1.5 / currentK);
-            stationsLayer.selectAll("circle")
-                .filter(s => parseInt(s.station_number) === parseInt(d.stationArea))
-                .attr("fill", "#facc15")
-                .attr("stroke", "#ff6b00")
-                .attr("stroke-width", 3 / currentK);
-        });
+    // Clear and redraw dots using the current slider value.
+    renderDots();
+
 }
 
 // Runs once on page load, fetches static data in parallel (SF boundary GeoJSON,
@@ -322,13 +489,9 @@ async function renderMonth(monthKey) {
 // stack, then calls renderMonth() for the initial month
 async function init() {
     try {
-        const [geo, tracts, stations, sfUnion] = await Promise.all([
-            fetch(SF_URL).then(r => {
-                if (!r.ok) throw new Error("SF map data failed to load");
-                return r.json();
-            }),
+        const [tracts, stations, sfUnion] = await Promise.all([
             fetch(TRACTS_URL).then(r => {
-                if (!r.ok) throw new Error("Zip boundary file failed to load");
+                if (!r.ok) throw new Error("Boundary file failed to load");
                 return r.json();
             }),
             fetch("firestations.json").then(r => {
@@ -341,7 +504,9 @@ async function init() {
             })
         ]);
 
-        projection.fitExtent([[20, 20], [W - 20, H - 20]], geo);
+        allStations = stations;
+
+        projection.fitExtent([[20, 20], [W - 20, H - 20]], sfUnion);
 
         // Heatmap layer (must be below ocean mask)
         heatmapLayer = container.append("g");
@@ -353,16 +518,43 @@ async function init() {
             .attr("fill-rule", "evenodd")
             .attr("d", `M -9999 -9999 H 99999 V 99999 H -9999 Z ${sfUnionPath}`);
 
-        // Boundaries
-        container.append("g")
-            .selectAll("path")
+        // Boundaries / clickable regions
+        const isTract = params.get("boundary") === "tract";
+        regionIdFn = (feature) => isTract ? feature.properties.GEOID : feature.properties.ZCTA5CE20;
+
+        // Rewind rings so transparent fills stay inside each region and remain clickable.
+        tracts.features.forEach(feature => {
+            const polygons = feature.geometry.type === "MultiPolygon"
+                ? feature.geometry.coordinates
+                : [feature.geometry.coordinates];
+            polygons.forEach(poly => poly.forEach(ring => ring.reverse()));
+        });
+
+        boundariesLayer = container.append("g")
+            .attr("display", hideBoundaries ? "none" : null);
+
+        regionPaths = boundariesLayer.selectAll("path")
             .data(tracts.features)
             .enter()
             .append("path")
             .attr("d", pathGen)
-            .attr("fill", "none")
+            .attr("fill", "transparent")
+            .attr("pointer-events", "all")
+            .style("cursor", hideBoundaries ? "default" : "pointer")
             .attr("stroke", "#14071f")
-            .attr("stroke-width", 0.8);
+            .attr("stroke-width", 0.8)
+            .on("click", function (event, d) {
+                if (hideBoundaries) return;
+                const id = regionIdFn(d);
+                if (id == null) return;
+                window.parent.postMessage({
+                    type: "REGION_CLICK",
+                    id: String(id),
+                    boundary: isTract ? "tract" : "zipcode"
+                }, "*");
+            });
+
+        applyRegionHighlight();
 
         // Dots layer
         dotsLayer = container.append("g").attr("id", "dots-layer");
@@ -405,7 +597,7 @@ async function init() {
             .attr("fill", "#233962")
             .attr("font-size", "20px")
             .attr("font-family", "Arial, sans-serif")
-            .text("Map data could not load. Check token, Live Server, and file names.");
+            .text("Map data could not load. Check Live Server and file names.");
     }
 }
 
@@ -416,3 +608,5 @@ init();
 
 </body>
 </html>
+
+

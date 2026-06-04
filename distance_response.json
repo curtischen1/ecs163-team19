@@ -1,0 +1,42 @@
+{
+  "relationship": "nearest fire station distance vs EMS response time",
+  "correlation": 0.455,
+  "data": [
+    {
+      "label": "0\u20130.25",
+      "minutes": 10.65,
+      "count": 26755,
+      "regions": 21
+    },
+    {
+      "label": "0.25\u20130.5",
+      "minutes": 10.59,
+      "count": 76749,
+      "regions": 70
+    },
+    {
+      "label": "0.5\u20130.75",
+      "minutes": 10.7,
+      "count": 95164,
+      "regions": 71
+    },
+    {
+      "label": "0.75\u20131",
+      "minutes": 11.5,
+      "count": 43375,
+      "regions": 42
+    },
+    {
+      "label": "1\u20131.5",
+      "minutes": 12.03,
+      "count": 27994,
+      "regions": 31
+    },
+    {
+      "label": "1.5+",
+      "minutes": 12.94,
+      "count": 6106,
+      "regions": 6
+    }
+  ]
+}

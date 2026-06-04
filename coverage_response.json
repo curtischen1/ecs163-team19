@@ -1,0 +1,36 @@
+{
+  "description": "EMS response time by number of firestations within 1.5 km of a census tract centroid. Response time is weighted by call count across all 2024 months in response_by_region.json.",
+  "correlation": -0.658,
+  "data": [
+    {
+      "label": "0",
+      "minutes": 13.39,
+      "count": 5798,
+      "tracts": 5
+    },
+    {
+      "label": "1",
+      "minutes": 12.09,
+      "count": 36051,
+      "tracts": 45
+    },
+    {
+      "label": "2",
+      "minutes": 11.39,
+      "count": 43970,
+      "tracts": 56
+    },
+    {
+      "label": "3",
+      "minutes": 10.95,
+      "count": 38805,
+      "tracts": 42
+    },
+    {
+      "label": "4+",
+      "minutes": 10.51,
+      "count": 151519,
+      "tracts": 93
+    }
+  ]
+}
