@@ -77,6 +77,15 @@ const TRACTS_URL = params.get("boundary") === "tract" ? "sf_tracts.json" : "zip.
 const SAMPLE_SIZE = 750;
 const monthParam = params.get("month") || "mar";
 
+function sampleIncidents(arr, n) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a.slice(0, Math.min(n, a.length));
+}
+
 // Gaussian KDE grid
 // Assigns a weighted-average response time to each cell of a pixel grid using
 // a Gaussian kernel (sigma = 25px), output is passed to d3.contours() to
@@ -224,7 +233,7 @@ async function renderMonth(monthKey) {
         return { x, y, t: d.t };
     });
 
-    const sampledRows = rows;
+    const sampledRows = sampleIncidents(rows, SAMPLE_SIZE);
     const { grid, cols, rows: gridRows } = buildGrid(points);
     const min = d3.min(points, d => d.t);
     const max = d3.max(points, d => d.t);
