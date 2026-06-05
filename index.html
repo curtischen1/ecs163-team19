@@ -17,16 +17,28 @@
 <body>
     <main id="page">
         <h1>How long will it take an ambulance to reach you?</h1>
-        <p id="page-subtitle">Use the toggles, month selector, incident slider, and map controls to explore ambulance response patterns across San Francisco. Click regions or dots, compare views, and draw your own conclusions from the data.</p>
+        <p id="page-subtitle">Use the chart selector, month selector, incident slider, and map controls to explore ambulance response patterns across San Francisco. Click regions or dots, compare views, and draw your own conclusions from the data.</p>
 
         <section id="dashboard">
             <aside id="left-panel">
 
                 <section id="bar-chart-section">
-                    <!--  buttons only affect the Zipcode / Census Tract area charts. -->
-                    <div id="chart-mode-toggle">
-                        <button type="button" id="income-mode" class="mode-btn selected">Income</button>
-                        <button type="button" id="severity-mode" class="mode-btn">Severity</button>
+                    <!-- single dropdown picks which bar chart is shown (see script.js) -->
+                    <div id="chart-select-row">
+                        <label for="chart-select">Chart</label>
+                        <select id="chart-select">
+                            <optgroup label="EMS Call Volume">
+                                <option value="income-zip">by Income (ZIP)</option>
+                                <option value="income-tract">by Income (Census tract)</option>
+                            </optgroup>
+                            <optgroup label="EMS Response Time">
+                                <option value="severity">by Severity</option>
+                                <option value="month">by Month</option>
+                                <option value="density">by Call density</option>
+                                <option value="distance">by Station distance</option>
+                                <option value="coverage">by Station coverage</option>
+                            </optgroup>
+                        </select>
                     </div>
 
                     <div id="bar-legend">
@@ -47,49 +59,6 @@
                         <div id="region-note"></div>
                     </div>
                 </section>
-
-                <section id="toggle-section">
-                    <h2>Toggle</h2>
-
-                    <div class="toggle-row">
-                        <button class="boundary-toggle selected" id="zipcode-toggle" type="button"></button>
-                        <span>Income by Zipcode</span>
-                    </div>
-
-                    <div class="toggle-row">
-                        <button class="boundary-toggle" id="tract-toggle" type="button"></button>
-                        <span>Income by Census Tract</span>
-                    </div>
-
-                    <div class="toggle-row">
-                        <button class="boundary-toggle" id="month-response-toggle" type="button"></button>
-                        <span>Response by Month</span>
-                    </div>
-
-                    <div class="toggle-row">
-                        <button class="boundary-toggle" id="call-density-toggle" type="button"></button>
-                        <span>Call Density</span>
-                    </div>
-
-                    <div class="toggle-row">
-                        <button class="boundary-toggle" id="station-distance-toggle" type="button"></button>
-                        <span>Distance to Firestation</span>
-                    </div>
-
-                    <div class="toggle-row">
-                        <button class="boundary-toggle" id="station-coverage-toggle" type="button"></button>
-                        <span>Firestation Coverage</span>
-                    </div>
-
-                    <div class="firestation-row">
-                        <span>Firestations</span>
-
-                        <button id="firestation-toggle" type="button" aria-label="Toggle firestations">
-                            <span id="firestation-knob"></span>
-                        </button>
-                    </div>
-                </section>
-
 
                 <section id="incident-count-section">
                     <div id="incident-count-header">
@@ -117,12 +86,30 @@
             </aside>
 
             <section id="map-area">
-                <div id="legend">
-                    <span>Low Response Time</span>
+                <!-- single toolbar above the map: region + firestation controls left, response-time key right -->
+                <div id="map-toolbar">
+                    <div id="map-controls-group">
+                        <span id="region-layer-label">Map regions:</span>
+                        <div id="region-layer-toggle" role="group" aria-label="Map region granularity">
+                            <button type="button" id="region-zip" class="region-btn selected">ZIP codes</button>
+                            <button type="button" id="region-tract" class="region-btn">Census tracts</button>
+                        </div>
 
-                    <div id="legend-gradient"></div>
+                        <div class="firestation-row">
+                            <span id="firestation-label">Show firestations</span>
 
-                    <span>High Response Time</span>
+                            <button id="firestation-toggle" type="button" role="switch" aria-checked="false" aria-labelledby="firestation-label">
+                                <span id="firestation-knob"></span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="legend">
+                        <span class="legend-caption">Response time</span>
+                        <span>Low</span>
+                        <div id="legend-gradient"></div>
+                        <span>High</span>
+                    </div>
                 </div>
 
                 <div id="map-frame">

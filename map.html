@@ -68,7 +68,6 @@ const pathGen = d3.geoPath(projection);
 // boundary param switches between zip code and census tract overlays
 // month param sets which month's EMS data to load on initial render
 const params = new URLSearchParams(window.location.search);
-const hideBoundaries = params.get("hideBoundaries") === "1";
 const TRACTS_URL = params.get("boundary") === "tract" ? "sf_tracts.json" : "zip.json";
 let currentSampleSize = 750;
 const monthParam = params.get("month") || "mar";
@@ -530,8 +529,7 @@ async function init() {
             polygons.forEach(poly => poly.forEach(ring => ring.reverse()));
         });
 
-        boundariesLayer = container.append("g")
-            .attr("display", hideBoundaries ? "none" : null);
+        boundariesLayer = container.append("g");
 
         regionPaths = boundariesLayer.selectAll("path")
             .data(tracts.features)
@@ -540,11 +538,10 @@ async function init() {
             .attr("d", pathGen)
             .attr("fill", "transparent")
             .attr("pointer-events", "all")
-            .style("cursor", hideBoundaries ? "default" : "pointer")
+            .style("cursor", "pointer")
             .attr("stroke", "#14071f")
             .attr("stroke-width", 0.8)
             .on("click", function (event, d) {
-                if (hideBoundaries) return;
                 const id = regionIdFn(d);
                 if (id == null) return;
                 window.parent.postMessage({
