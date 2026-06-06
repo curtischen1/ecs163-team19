@@ -2,16 +2,10 @@
     "use strict";
 
     // get all of the page controls and display areas that this script needs to update
-    const zipcodeToggle = document.querySelector("#zipcode-toggle");
-    const tractToggle = document.querySelector("#tract-toggle");
-    const monthResponseToggle = document.querySelector("#month-response-toggle");
-    const callDensityToggle = document.querySelector("#call-density-toggle");
-    const stationDistanceToggle = document.querySelector("#station-distance-toggle");
-    const stationCoverageToggle = document.querySelector("#station-coverage-toggle");
+    const chartSelect = document.querySelector("#chart-select");
+    const regionZipBtn = document.querySelector("#region-zip");
+    const regionTractBtn = document.querySelector("#region-tract");
     const firestationToggle = document.querySelector("#firestation-toggle");
-    const incomeModeBtn = document.querySelector("#income-mode");
-    const severityModeBtn = document.querySelector("#severity-mode");
-    const chartModeToggle = document.querySelector("#chart-mode-toggle");
     const barLegend = document.querySelector("#bar-legend");
     const barChartYLabel = document.querySelector("#bar-chart-ylabel");
     const regionNote = document.querySelector("#region-note");
@@ -60,102 +54,64 @@
         mapFrame.contentWindow.postMessage({ type: "SET_SAMPLE_SIZE", size }, "*");
     }
 
-    // Switch map/chart view to zipcode boundaries
-    zipcodeToggle.addEventListener("click", function () {
-        currentChart = "boundary";
-        currentBoundary = "zipcode";
+    // each dropdown option maps to a chart + boundary + mode combination
+    const CHART_OPTIONS = {
+        "income-zip": { chart: "boundary", boundary: "zipcode", mode: "income" },
+        "income-tract": { chart: "boundary", boundary: "tract", mode: "income" },
+        "severity": { chart: "boundary", mode: "severity" },
+        "month": { chart: "monthResponse" },
+        "density": { chart: "callDensity" },
+        "distance": { chart: "stationDistance" },
+        "coverage": { chart: "stationCoverage" }
+    };
+
+    // single dropdown drives the whole bar chart: set state, then redraw map + chart
+    chartSelect.addEventListener("change", function () {
+        const opt = CHART_OPTIONS[chartSelect.value];
+        if (!opt) return;
+
+        currentChart = opt.chart;
+        if (opt.boundary) currentBoundary = opt.boundary;
+        if (opt.mode) currentChartMode = opt.mode;
+
+        updateRegionToggleStyles();
         clearRegionSelection();
-        // Initial page setup.
-    updateToggleStyles();
         updateChartLabel();
         updateMapSrc();
         updateMapSettings();
         renderBarChart();
     });
 
-    // switch map/chart view to census tract boundaries
-    tractToggle.addEventListener("click", function () {
-        currentChart = "boundary";
-        currentBoundary = "tract";
+    // map-region strip: shares the geographic granularity with the income chart
+    function selectRegionLayer(boundary) {
+        if (currentBoundary === boundary) return;
+        currentBoundary = boundary;
+        updateRegionToggleStyles();
         clearRegionSelection();
-        updateToggleStyles();
-        updateChartLabel();
         updateMapSrc();
-        updateMapSettings();
-        renderBarChart();
-    });
 
-    // income based chart for the selected boundary type
-    incomeModeBtn.addEventListener("click", function () {
-        currentChart = "boundary";
-        switchToIncomeMode();
-        updateToggleStyles();
-        updateMapSrc(); 
+        // if the income chart is up, keep the dropdown + chart in sync with the map
+        if (currentChart === "boundary" && currentChartMode === "income") {
+            chartSelect.value = currentBoundary === "tract" ? "income-tract" : "income-zip";
+            updateChartLabel();
+            renderBarChart();
+        }
+    }
 
-        sendRegionHighlight();
-        renderBarChart();
-    });
+    regionZipBtn.addEventListener("click", function () { selectRegionLayer("zipcode"); });
+    regionTractBtn.addEventListener("click", function () { selectRegionLayer("tract"); });
 
-    // call severity chart
-    severityModeBtn.addEventListener("click", function () {
-        currentChart = "boundary";
-        currentChartMode = "severity";
-        updateModeButtonStyles();
-        updateToggleStyles();
-        updateChartLabel();
-        updateMapSrc();
-        sendRegionHighlight();
-        renderBarChart();
-    });
-
-    // avg EMS response time by month
-    monthResponseToggle.addEventListener("click", function () {
-        currentChart = "monthResponse";
-        clearRegionSelection();
-        updateToggleStyles();
-        updateChartLabel();
-        updateMapSrc();
-        updateMapSettings();
-        renderBarChart();
-    });
-
-    // call density relates to response time
-    callDensityToggle.addEventListener("click", function () {
-        currentChart = "callDensity";
-        clearRegionSelection();
-        updateToggleStyles();
-        updateChartLabel();
-        updateMapSrc();
-        updateMapSettings();
-        renderBarChart();
-    });
-
-    // show response time grouped by distance to  the nearest fire station 
-    stationDistanceToggle.addEventListener("click", function () {
-        currentChart = "stationDistance";
-        clearRegionSelection();
-        updateToggleStyles();
-        updateChartLabel();
-        updateMapSrc();
-        updateMapSettings();
-        renderBarChart();
-    });
-
-    // show rsponse time grouped by how many fire stations are nearby
-    stationCoverageToggle.addEventListener("click", function () {
-        currentChart = "stationCoverage";
-        clearRegionSelection();
-        updateToggleStyles();
-        updateChartLabel();
-        updateMapSrc();
-        updateMapSettings();
-        renderBarChart();
-    });
+    // highlight whichever region granularity is active on the map strip
+    function updateRegionToggleStyles() {
+        regionZipBtn.classList.toggle("selected", currentBoundary === "zipcode");
+        regionTractBtn.classList.toggle("selected", currentBoundary === "tract");
+    }
 
     // turn fire station markrs on and off on the map
     firestationToggle.addEventListener("click", function () {
         firestationsVisible = !firestationsVisible;
         firestationToggle.classList.toggle("on");
+        firestationToggle.setAttribute("aria-checked", String(firestationsVisible));
         sendFirestationState();
         updateMapSettings();
     });
@@ -210,7 +166,7 @@
         selectedRegionId = (selectedRegionId === id) ? null : id;
         if (currentChartMode !== "income") switchToIncomeMode();
 
-        await renderBarChart(); 
+        await renderBarChart();
         updateRegionNote();
 
         sendRegionHighlight();
@@ -219,14 +175,8 @@
     // helper for returning the chart controls back t income mode
     function switchToIncomeMode() {
         currentChartMode = "income";
-        updateModeButtonStyles();
+        syncChartSelect();
         updateChartLabel();
-    }
-
-    // mark whether Income or Severity is selected
-    function updateModeButtonStyles() {
-        incomeModeBtn.classList.toggle("selected", currentChartMode === "income");
-        severityModeBtn.classList.toggle("selected", currentChartMode === "severity");
     }
 
     // rmv selected zipcode/tract highlight
@@ -274,27 +224,29 @@
         );
     }
 
-    // update main chart/map toggle buttons
-    function updateToggleStyles() {
-
-        zipcodeToggle.classList.toggle("selected", currentChart === "boundary" && currentBoundary === "zipcode");
-        tractToggle.classList.toggle("selected", currentChart === "boundary" && currentBoundary === "tract");
-        monthResponseToggle.classList.toggle("selected", currentChart === "monthResponse");
-        callDensityToggle.classList.toggle("selected", currentChart === "callDensity");
-        stationDistanceToggle.classList.toggle("selected", currentChart === "stationDistance");
-        stationCoverageToggle.classList.toggle("selected", currentChart === "stationCoverage");
+    // keep the dropdown value matching the current chart state
+    function syncChartSelect() {
+        if (currentChart === "boundary") {
+            chartSelect.value = currentChartMode === "severity"
+                ? "severity"
+                : (currentBoundary === "tract" ? "income-tract" : "income-zip");
+        } else if (currentChart === "monthResponse") {
+            chartSelect.value = "month";
+        } else if (currentChart === "callDensity") {
+            chartSelect.value = "density";
+        } else if (currentChart === "stationDistance") {
+            chartSelect.value = "distance";
+        } else if (currentChart === "stationCoverage") {
+            chartSelect.value = "coverage";
+        }
     }
 
-    // change the chart title, y-axis label, legend, and controls based on active chart
+    // change the chart title, y-axis label, and legend based on active chart
     function updateChartLabel() {
-        updateModeButtonStyles();
-
         const usesResponseAxis = currentChart !== "boundary" || currentChartMode === "severity";
         barChartYLabel.classList.toggle("response-axis-label", usesResponseAxis);
 
         if (currentChart === "boundary") {
-            chartModeToggle.style.display = "inline-flex";
-
             if (currentChartMode === "severity") {
                 barChartLabel.textContent = "Call Severity";
                 barChartYLabel.textContent = "EMS Response (min)";
@@ -316,7 +268,6 @@
         }
 
 
-        chartModeToggle.style.display = "none";
         barLegend.style.display = "none";
         regionNote.style.display = "none";
         barChartYLabel.textContent = "EMS Response (min)";
@@ -327,17 +278,11 @@
         if (currentChart === "stationCoverage") barChartLabel.textContent = "Firestations within 1.5 km";
     }
 
-    // hide zipcode/tract outlines when the selected chart is not a boundary based chart
-    function shouldHideBoundaries() {
-        return currentChart !== "boundary";
-    }
-
-    // reload iframe map with the correct month, boundary type, and boundary visibility
+    // reload iframe map with the correct month and region granularity
     function updateMapSrc() {
         const params = new URLSearchParams();
         params.set("month", currentMonth);
         if (currentBoundary === "tract") params.set("boundary", "tract");
-        if (shouldHideBoundaries()) params.set("hideBoundaries", "1");
         mapFrame.src = "map.html?" + params.toString();
     }
 
@@ -384,8 +329,7 @@
             chartMode: currentChartMode,
             month: currentMonth,
 
-            firestations: firestationsVisible,
-            hideBoundaries: shouldHideBoundaries()
+            firestations: firestationsVisible
         });
     }
 
@@ -977,7 +921,8 @@
             .attr("x2", innerW).attr("y2", innerH);
     } 
 
-    updateToggleStyles(); 
+    syncChartSelect();
+    updateRegionToggleStyles();
     updateChartLabel();
     renderBarChart();
 
