@@ -42,8 +42,8 @@ cd <repository-folder>
    * The month buttons can be used to move through 2024 (be aware this can sometimes take a few seconds for the intitial and next maps to load).
    * Use the ZIP code / census tract toggle to change the map boundary type.
    * The fire station toggles to show or hide fire station locations, which when paired with a selected incident will show the user whihc fire station answered that particular call.
-   * The incident slider can control how many incident dots appear on the map, as there are too many to display all at once.
-   * Click a region or incident dot to view more detailed information paired with the income related charts.
+   * The incident slider can control how many incident dots appear on the map, as there are too many to display all at once. Click on an individual incident dot to read an incident report with specific details about the call.
+   * Click a region on the map to view more detailed information paired with the income related charts.
 
 This dashboard is designed to support user exploration. There is no one required path to go through the visualization.
 
