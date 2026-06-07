@@ -570,3 +570,17 @@ h1 {
 }
 
 
+
+#page {
+    height: auto;
+    overflow: visible;
+}
+
+body {
+    overflow-y: auto;
+}
+
+#left-panel {
+    max-height: none;
+    overflow-y: visible;
+}
