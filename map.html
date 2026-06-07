@@ -165,7 +165,7 @@ function buildGrid(points, cell = 8) {
 
   const grid = new Float32Array(cols * rows);
 
-  const sigma = Math.min(W, H) / 20;
+  const sigma = 25;
   const denom = 2 * sigma * sigma;
 
   for (let r = 0; r < rows; r++) {
@@ -597,6 +597,8 @@ async function init() {
             .text("Map data could not load. Check Live Server and file names.");
     }
 }
+
+addEventListener("resize", () => location.reload());
 
 init();
 </script>
