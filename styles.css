@@ -19,9 +19,9 @@ body {
  
 #page {
     width: 100vw;
-    height: 100vh;
+    min-height: 100vh;
     padding: 48px 8vw 30px;
-    overflow: hidden;
+    overflow-x: hidden;
 }
 
 h1 {
@@ -306,6 +306,9 @@ h1 {
 
 #map-area {
     width: 100%;
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 250px);
 }
 
 #legend {
@@ -430,7 +433,8 @@ h1 {
 #map-frame {
     position: relative;
     width: 100%;
-    height: 500px;
+    flex: 1;
+    min-height: 250px;
     background: #d9d9d9;
     overflow: hidden;
 }
@@ -540,6 +544,10 @@ h1 {
 
     #incident-report {
         margin-bottom: 40px;
+    }
+
+    #map-area {
+        height: auto;
     }
 
     #map-frame {
